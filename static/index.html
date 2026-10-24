@@ -1,13 +1,14 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>ChainSentinel · on-chain AML with Banyan Sapling</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%23131417%22/%3E%3Cpath d=%22M12 4l6.5 3.7v7.6L12 19l-6.5-3.7V7.7z%22 fill=%22none%22 stroke=%22%237aa2ff%22 stroke-width=%221.8%22/%3E%3C/svg%3E">
-<link rel="preload" href="/static/vendor/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%2316181c%22/%3E%3Cpath d=%22M12 4l6.5 3.7v7.6L12 19l-6.5-3.7V7.7z%22 fill=%22none%22 stroke=%22%23f5f3ee%22 stroke-width=%221.8%22/%3E%3C/svg%3E">
+<link rel="preload" href="/static/vendor/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/vendor/fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/cytoscape.min.js"></script></head>
 <body>
 <div class="app">
   <aside class="side">
-    <div class="brand"><div class="mark" data-i="mark"></div><div><b>ChainSentinel</b><small>Rules detect, Sapling decides</small></div></div>
+    <div class="brand"><div class="mark" data-i="mark"></div><div><b>ChainSentinel</b><small>Rules gather evidence. Sapling decides.</small></div></div>
     <nav class="nav" id="nav">
       <button data-tab="overview"><span data-i="grid"></span>Overview</button>
       <button data-tab="investigate"><span data-i="search"></span>Investigate</button>
@@ -25,11 +26,12 @@
   <main>
     <!-- OVERVIEW -->
     <section class="view" id="v-overview"><div class="scroll"><div class="page">
-      <div class="phead"><div><h1>Overview</h1><p>Every wallet below went through the same pipeline: on-chain data, eight AML detectors, then Banyan Sapling judging the evidence against a written policy.</p></div>
+      <div class="phead"><div><h1>Overview</h1><p>Is this crypto wallet laundering money? ChainSentinel pulls its public transactions, eight rules gather evidence, and <span class="gl" tabindex="0" data-g="sapling">Banyan Sapling</span> judges that evidence against a written anti-money-laundering policy.</p></div>
         <div class="act"><button class="btn" data-goto="how"><span data-i="book"></span>How it works</button><button class="btn pri" data-goto="investigate"><span data-i="search"></span>Investigate a wallet</button></div></div>
+      <div class="onb" id="onb" hidden><ol class="onb3"><li><b>Paste a wallet</b><span>Any public Ethereum or Bitcoin address, or pick an example below.</span></li><li><b>See the money flow</b><span>A map of where the money came from and went, with suspicious flows highlighted.</span></li><li><b>Get a verdict with reasons</b><span>Sapling scores the evidence against the policy: FLAG, REVIEW or CLEAR.</span></li></ol><button class="btn sm ghost" id="onbx" aria-label="Dismiss">Got it</button></div>
       <div class="ov-top">
         <div class="panel screened" id="ov-screened"><div class="skel" style="height:150px"></div></div>
-        <div class="panel"><header><h2>Typologies detected</h2><span class="muted">wallets where each rule fired</span></header><div class="typo" id="ov-typo"><div class="skel" style="height:220px;margin-top:10px"></div></div></div>
+        <div class="panel"><header><h2>What the rules spotted</h2><span class="muted">wallets per pattern · click to open one</span></header><div class="typo" id="ov-typo"><div class="skel" style="height:220px;margin-top:10px"></div></div></div>
       </div>
       <div class="ov-mid">
         <div class="panel"><header><h2>Start with an example</h2><span class="muted">click to open the investigation</span></header><div id="ov-ex"></div></div>
@@ -47,7 +49,7 @@
       </div>
       <div class="ierr"><div class="errmsg" id="ierr"></div></div>
       <div class="steps" id="steps"></div>
-      <div class="stepnote" id="stepnote"><span data-i="info"></span><span>Pick an example or paste an address. Each step lights up as the pipeline runs; click a step to see that part on the graph.</span></div>
+      <div class="stepnote" id="stepnote"><span data-i="info"></span><span>Pick an example or paste an address. Each step lights up as it runs; click a step afterwards to replay that part on the map.</span></div>
       <div class="ws">
         <div class="gcol">
           <div class="gwrap" id="gwrap">
@@ -60,7 +62,7 @@
               <button class="btn on" id="t-flow" title="Animate money flow"><span data-i="flow"></span>Flow</button>
             </div>
             <div class="legend" id="legend" hidden></div>
-            <div class="gempty" id="gempty"><div><h3>No wallet loaded</h3><p>The money-flow graph appears here: the investigated wallet in the centre, counterparties around it, edge thickness by value.</p></div></div>
+            <div class="gempty" id="gempty"><div><h3>Paste a wallet address to start</h3><p>Or pick one of the examples above. The money-flow map appears here: the wallet in the centre, everyone it traded with around it, thicker lines for bigger amounts.</p><ol class="onb3 sm"><li><b>Paste a wallet</b></li><li><b>See the money flow</b></li><li><b>Get a verdict with reasons</b></li></ol></div></div>
             <div class="tip" id="tip"></div>
           </div>
           <div class="tl" id="tl"><header><span data-i="clock"></span><b>Timeline</b><span id="tlcount" class="muted"></span></header><div class="tlrows" id="timeline"></div></div>
@@ -106,5 +108,8 @@
     <section class="view" id="v-how"><div class="scroll"><div class="read" id="howbody"></div></div></section>
   </main>
 </div>
+<dialog class="poldlg" id="poldlg"><div class="pdh"><div><h3>Policy editor</h3><p class="muted small">Sapling judges the evidence against whatever policy you write. Change the wording, then re-run the same evidence and claim live.</p></div><button class="btn sm ghost" id="polclose" aria-label="Close"><span data-i="x"></span></button></div>
+  <div class="pdb"><div><textarea id="poltext" spellcheck="false"></textarea><div class="pdf"><span class="muted small num" id="poluse"></span><button class="btn sm" id="polreset">Reset to default</button><button class="btn sm pri" id="polrun"><span data-i="send"></span>Re-run Sapling</button></div></div><div id="polres"></div></div></dialog>
+<div class="gtip" id="gtip" role="tooltip"></div>
 <script src="/static/app.js"></script>
 </body></html>

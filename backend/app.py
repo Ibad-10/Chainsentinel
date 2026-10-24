@@ -34,9 +34,27 @@ def analyze(address: str, refresh: bool = False):
 def synthetic(case: str):
     if case not in SY.CASES: raise HTTPException(404)
     with LOCK: return E.analyze("eth", None, synthetic_case=case)
+class VerifyReq(BaseModel):
+    policy: str
+    evidence: str
+    claim: str
+@app.post("/api/sapling/verify")
+def sapling_verify(req: VerifyReq):
+    """Re-run Banyan Sapling on a user-edited policy (policy-driven verification). Same evidence and claim."""
+    if len(req.policy) > 20000 or len(req.evidence) > 80000 or len(req.claim) > 2000: raise HTTPException(400, "Input too long for this demo.")
+    try: r = E.sapling(req.evidence, policy=req.policy, claim=req.claim)
+    except ValueError as e: raise HTTPException(400, str(e))
+    except Exception as e:
+        if E.OFFLINE: raise HTTPException(503, "Offline mode: Sapling has not seen this exact policy before, so there is no cached answer. Restart without CS_OFFLINE=1 to verify it live.")
+        raise HTTPException(502, f"Sapling call failed: {str(e)[:200]}")
+    r["verdict"] = E.decide(r["probabilities"]); r["cutoffs"] = E.CUT
+    return r
+@app.get("/api/sapling/policy")
+def sapling_policy():
+    return {"policy": E.SC.POLICY, "claim": E.SC.CLAIM, "limit_tokens": E.SAPLING_TOKEN_LIMIT}
 @app.get("/api/showcase")
 def showcase():
-    return dict(real=S.REAL, synthetic=[dict(case=k, title=v[0], expected=v[2]) for k, v in SY.CASES.items()], cutoffs=E.CUT, offline=E.OFFLINE)
+    return dict(real=S.REAL, synthetic=[dict(case=k, title=v[0], expected=v[2]) for k, v in SY.CASES.items()], cutoffs=E.CUT, offline=E.OFFLINE, sapling_url=E.SC.URL)
 @app.get("/api/batch")
 def batch():
     out = []

@@ -1,10 +1,12 @@
 # ChainSentinel: 2-minute demo script
 
-**0:00–0:12 · Hook (Overview).** Open on the **Overview** dashboard. "Ethereum has no compliance built in: no freeze, no clawback. Lazarus laundered over a billion dollars through it. ChainSentinel lets a compliance analyst see it and decide in seconds. Our rules detect, Mubit's Banyan Sapling decides." Point at the summary: 15 wallets, 10 flagged, 2 review, 3 cleared, and which typologies fired.
+**0:00–0:12 · Hook (Overview).** Open on the **Overview** dashboard. "Ethereum has no compliance built in: no freeze, no clawback. Lazarus laundered over a billion dollars through it. ChainSentinel lets a compliance analyst see it and decide in seconds. Our rules only gather evidence; Mubit's Banyan Sapling makes the call." Point at the summary: 15 wallets, 10 flagged, 2 review, 3 cleared, and which typologies fired.
 
-**0:12–0:45 · Investigate a real hack (Bybit Exploiter).** Click it under *Start with an example*. The six-step stepper runs: fetch, build graph, rules fire, ask Sapling, probabilities, cut-offs. The graph grows out of the exploiter, and particles show money moving, sized by value. Click step **3 Rules fire**: the flows behind R3, R4 and R8 light up and the 39 fresh wallets glow as one group. Point at the verdict: **FLAG**, P(violation) 92%. Click step **4 Ask Sapling**: "This is the policy, evidence and claim. No chat box, one call, about a second."
+**0:12–0:40 · Investigate a real hack (Bybit Exploiter).** Click it under *Start with an example*. The stepper runs: fetch, map the money flow, rules gather evidence, **Sapling verifies**, Sapling scores, verdict. The graph grows out of the exploiter and particles show money moving. Watch the **Sapling verdict** card on the right: it lists what goes in (policy, evidence, claim, about 900 of 16,384 tokens), pulses *Sapling is verifying…*, then reveals the four calibrated scores, the raw status `unsure`, the prediction set and the model time (~1.1 s). "Sapling returns scores, not chat. Its raw status says *ambiguous*, which by Mubit's guidance means route to a human; our FLAG line at 0.60 sits on top, and P(violation) is 0.92."
 
-**0:45–1:00 · How it works.** Open **How it works** and scroll to the counterfactual. "On raw facts Sapling says 70% violation. Once our detectors cite the specific transactions, it goes to 92%. Every claim is checkable on the graph, and the cut-offs are fixed and visible."
+**0:40–0:55 · Sapling makes the call (counterfactual + policy editor).** Point at *Who makes the call?* right under the verdict: facts alone 70% → facts + rule evidence 92%. Then click **Edit policy and re-run Sapling**, delete the whole line starting `R8 Exploit proceeds` (including its line break, so offline mode hits the cached answer), press **Re-run Sapling**: a live call, about a second, P(violation) drops from 0.92 to 0.64. "Change the policy in plain English and the judgement moves. That's Sapling doing the hard part."
+
+**0:55–1:00 · Plain English.** Hover the dotted *P(violation)* or the **?** next to a rule for a one-line explanation of the jargon.
 
 **1:00–1:15 · No false alarm (Coinbase 10 chip).** "Thousands of transfers, but it's a labelled exchange. The look-alike guard explains it, and Sapling says **CLEAR**." (Binance 14 works the same way.)
 
@@ -14,4 +16,4 @@
 
 **1:55–2:00 · Close.** "ChainSentinel: graph-first AML where Sapling does the judging. Code is on GitHub."
 
-Prep: run `.venv/bin/python warm_cache.py` right before the demo, and start with `CS_OFFLINE=1 ./run.sh` if the wifi is shaky. Add the sweeper wallet `0x8caa5e923374116A4024139bd8382f16A715402c` to the Watchlist beforehand, and press Reset before the simulate step so it starts from REVIEW.
+Prep: run `.venv/bin/python warm_cache.py` and then `.venv/bin/python shoot.py` (which also caches the *R8 removed* policy edit, so the policy-editor step works offline) right before the demo, and start with `CS_OFFLINE=1 ./run.sh` if the wifi is shaky. Add the sweeper wallet `0x8caa5e923374116A4024139bd8382f16A715402c` to the Watchlist beforehand, and press Reset before the simulate step so it starts from REVIEW.

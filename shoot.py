@@ -38,5 +38,19 @@ async def main():
         await pg.fill("#waddr", "river candle orbit maple tunnel velvet harbor lemon prism walnut ember cobalt")
         await pg.click("#wadd"); await pg.wait_for_timeout(1200)
         await pg.screenshot(path="screenshots/12_watchlist_rejects_seed_phrase.png"); print("saved 12")
+        # Sapling verdict panel mid-run ("Sapling is verifying...") and finished
+        await pg.goto(B + f"/?a={RONIN}"); await pg.wait_for_selector("#sapstate.busy", timeout=15000); await pg.wait_for_timeout(250)
+        await pg.screenshot(path="screenshots/14_sapling_verifying.png"); print("saved 14")
+        await pg.wait_for_timeout(6000); await pg.locator("#c-verdict").screenshot(path="screenshots/15_sapling_verdict_panel.png"); print("saved 15")
+        # policy editor: drop rule R8 from the written policy and re-run Sapling live on the Bybit evidence
+        await pg.goto(B + f"/?a={BYBIT}"); await pg.wait_for_timeout(9000)
+        await pg.click("#poledit"); await pg.wait_for_timeout(400)
+        await pg.evaluate("""() => { const t = document.querySelector('#poltext'); t.value = t.value.replace(/R8[^\\n]*\\n/, ''); t.dispatchEvent(new Event('input')); }""")
+        await pg.click("#polrun"); await pg.wait_for_selector("#polres .polcmp", timeout=60000); await pg.wait_for_timeout(1200)
+        await pg.screenshot(path="screenshots/16_policy_editor_rerun.png"); print("saved 16")
+        await pg.keyboard.press("Escape")
+        # plain-English tooltip on jargon
+        await pg.hover("#c-cf .gl"); await pg.wait_for_timeout(400)
+        await pg.screenshot(path="screenshots/17_jargon_tooltip.png"); print("saved 17")
         await b.close()
 asyncio.run(main())

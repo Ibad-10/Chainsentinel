@@ -347,26 +347,44 @@ def decide(p):
     if p.get("violation", 0) >= CUT["flag_violation"]: return "FLAG"
     if p.get("supported", 0) >= CUT["clear_supported"] and p.get("violation", 0) < CUT["clear_max_violation"]: return "CLEAR"
     return "REVIEW"
-def sapling(evidence):
-    payload = {"policy": SC.POLICY, "evidence": evidence, "claim": SC.CLAIM}
+SAPLING_TOKEN_LIMIT = 16384  # Sapling rejects (does not truncate) requests whose three fields exceed this combined
+def est_tokens(*texts):
+    """Conservative token estimate (about 3.2 characters per token for this kind of English + hex text)."""
+    return int(sum(len(t) for t in texts) / 3.2) + 1
+def sapling_usage(policy, evidence, claim):
+    return {"chars": len(policy) + len(evidence) + len(claim), "est_tokens": est_tokens(policy, evidence, claim), "limit_tokens": SAPLING_TOKEN_LIMIT}
+def sapling(evidence, policy=None, claim=None):
+    policy = SC.POLICY if policy is None else policy; claim = SC.CLAIM if claim is None else claim
+    for k, v in (("policy", policy), ("evidence", evidence), ("claim", claim)):
+        if not str(v).strip(): raise ValueError(f"Sapling needs a non-empty {k}.")
+    use = sapling_usage(policy, evidence, claim)
+    if use["est_tokens"] > SAPLING_TOKEN_LIMIT * 0.95:
+        raise ValueError(f"Sapling input too large: about {use['est_tokens']:,} tokens, limit {SAPLING_TOKEN_LIMIT:,}. Sapling rejects oversized requests instead of truncating, so shorten the policy or evidence.")
+    payload = {"policy": policy, "evidence": evidence, "claim": claim}
     def go():
-        r = SC.check(evidence)
+        r = SC.check(evidence, claim=claim, policy=policy)
         if "error" in r: raise RuntimeError(r["error"])
         return r
-    t0 = time.time(); r = cached(("sapling", payload), go); r = dict(r)
-    r["request"] = payload; r["wall_ms"] = int((time.time() - t0) * 1000)
+    t0 = time.time(); hit = [True]
+    def go2(): hit[0] = False; return go()
+    r = cached(("sapling", payload), go2); r = dict(r)
+    r["request"] = payload; r["wall_ms"] = int((time.time() - t0) * 1000); r["from_cache"] = hit[0]; r["usage"] = use
     return r
+PLAIN_LBL = {"violation": "breaks the policy", "supported": "looks legitimate", "insufficient_information": "not enough to tell", "inconsistent_context": "the evidence contradicts itself"}
 def why(rules, lookalikes, verdict, p):
+    """ChainSentinel's plain-English reading of Sapling's scores. Sapling itself returns only labels and scores."""
     if rules:
-        parts = {"R1": "it is connected to OFAC-sanctioned addresses", "R2": "it moved funds into a mixer, which breaks the trail", "R3": "money passed straight through it within a day",
-                 "R4": "a large inflow was split into many similar transfers to fresh wallets", "R5": "funds were peeled off hop by hop down a chain of fresh addresses",
-                 "R6": "funds were sent across chains via a bridge or swap service", "R7": "funds circled back to where they started", "R8": "the money traces to a publicly labelled exploit"}
-        txt = "This wallet looks like laundering because " + ", ".join(parts[r["id"]] for r in rules) + "."
+        parts = {"R1": "it dealt with addresses on the US sanctions (OFAC) list", "R2": "it sent money through a mixer, which hides where money came from", "R3": "money came in and went straight back out within a day",
+                 "R4": "a large sum was split into many similar transfers to brand-new wallets", "R5": "small amounts were peeled off hop by hop down a chain of new wallets",
+                 "R6": "money was moved to another blockchain or swapped, which breaks the trail", "R7": "money went round in a circle back to where it started", "R8": "the money traces back to a publicly known hack"}
+        txt = "Our rules found that " + "; ".join(parts[r["id"]] for r in rules) + "."
     else:
-        txt = "No laundering rule fired."
-    if lookalikes: txt += " Mitigating context: " + " ".join(lookalikes)
-    txt += f" Sapling judged the claim that the activity is legitimate as {max(p, key=p.get).replace('_', ' ')} (P(violation)={p.get('violation', 0):.2f}, P(supported)={p.get('supported', 0):.2f}), so the verdict is {verdict}."
-    if verdict == "REVIEW": txt += " The evidence does not let the model commit either way, so a human analyst should look."
+        txt = "Our rules found no laundering pattern."
+    if lookalikes: txt += " Innocent explanations considered: " + " ".join(lookalikes)
+    txt += f" Given that evidence and the written policy, Sapling scored \"breaks the policy\" {p.get('violation', 0):.0%}, \"looks legitimate\" {p.get('supported', 0):.0%} and \"not enough to tell\" {p.get('insufficient_information', 0):.0%}."
+    txt += {"FLAG": f" That is above our {CUT['flag_violation']:.0%} flag line, so ChainSentinel flags the wallet for investigation.",
+            "CLEAR": " That is a confident pass with little risk signal, so ChainSentinel clears it.",
+            "REVIEW": " Neither score is decisive, so, following Mubit's guidance for ambiguous cases, a person should review it."}[verdict]
     return txt
 
 def analyze(chain, address, refresh=False, extra_txs=None, synthetic_case=None):
