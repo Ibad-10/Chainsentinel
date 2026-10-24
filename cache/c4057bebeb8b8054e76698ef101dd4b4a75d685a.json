@@ -1,0 +1,1 @@
+{"status": "unsure", "raw_label": "insufficient_information", "prediction_set": ["supported", "violation", "insufficient_information", "inconsistent_context"], "probabilities": {"supported": 0.1191561299192847, "violation": 0.21190051749573185, "insufficient_information": 0.6245241435182872, "inconsistent_context": 0.04441920906669624}, "timing_ms": {"model": 1113.7651710014325}}
