@@ -52,5 +52,10 @@ async def main():
         # plain-English tooltip on jargon
         await pg.hover("#c-cf .gl"); await pg.wait_for_timeout(400)
         await pg.screenshot(path="screenshots/17_jargon_tooltip.png"); print("saved 17")
+        # live block scanner: funnel + block feed, then a SIMULATED hit end to end
+        await pg.goto(B + "/?tab=scan"); await pg.wait_for_selector("#scblocks .brow", timeout=60000); await pg.wait_for_timeout(9000)
+        await pg.screenshot(path="screenshots/18_live_scanner.png"); print("saved 18")
+        await pg.click("#scinj"); await pg.wait_for_function("document.querySelector('#sccards .sccard.sim .vpill')", timeout=60000); await pg.wait_for_timeout(1500)
+        await pg.screenshot(path="screenshots/19_live_scanner_escalation.png"); print("saved 19")
         await b.close()
 asyncio.run(main())

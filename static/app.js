@@ -36,6 +36,8 @@ const IC = {
   bars: '<path d="M5 20V11M10 20V5M15 20v-7M20 20v-4"/>',
   gavel: '<path d="M13.5 4.5l6 6"/><path d="M11 7l6 6"/><path d="M12.2 5.8l-4.6 4.6 6 6 4.6-4.6"/><path d="M10.6 13.4L4 20"/>',
   arrowr: '<path d="M5 12h14M14 7l5 5-5 5"/>',
+  pulse: '<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>',
+  pause: '<path d="M9 6v12M15 6v12"/>',
 };
 const icon = (n, cls = 'i') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${IC[n] || ''}</svg>`;
 const hydrate = (root = document) => root.querySelectorAll('[data-i]').forEach(el => { el.outerHTML = icon(el.dataset.i); });
@@ -89,6 +91,7 @@ function showTab(t) {
   if (t === 'lab' && !$('#labgrid').children.length) loadLab();
   if (t === 'watch') loadWatch();
   if (t === 'how' && !$('#howbody').children.length) loadHow();
+  if (t === 'scan') scanStart(); else scanStop();
   if (t === 'investigate' && G) requestAnimationFrame(() => G.cy.resize());
 }
 $$('#nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -535,6 +538,7 @@ $('#runbatch').onclick = runBatch;
 
 // ---------- overview ----------
 async function loadOverview() {
+  overviewScan(); clearInterval(window.OVS); window.OVS = setInterval(() => $('#v-overview').classList.contains('active') ? overviewScan() : clearInterval(window.OVS), 5000);
   let b; try { b = await getBatch(); } catch (e) { $('#ov-screened').innerHTML = `<div class="empty">Could not load the batch: ${esc(e.message)}</div>`; return; }
   const w = WL || await api('/api/watchlist').catch(() => ({items: [], alerts: []})); WL = w;
   const seen = new Set(b.items.map(i => (i.address || '').toLowerCase()));
@@ -634,6 +638,13 @@ async function loadHow() {
   <p class="lede"><b style="color:var(--fg)">Rules gather evidence, Sapling decides.</b> Eight deterministic detectors find laundering patterns and point at the exact transactions; they never decide on their own. Banyan Sapling, Mubit's verification model, reads that evidence against a written AML policy and judges whether “this wallet is legitimate” holds up.</p>
   <h2>The pipeline</h2><p>The same six steps run for every investigation, and the stepper on the Investigate screen replays them. Click any step there to see that part on the graph.</p>
   <div class="flow">${flow.map(([i, t, who, d]) => `<div class="fs"><div class="ic">${icon(i)}</div><div><h3>${t}<span class="who">${who}</span></h3><p>${d}</p></div></div>`).join('')}</div>
+  <h2>The live block scanner</h2>
+  <p><b style="color:var(--fg)">Every transaction gets cheap checks; only suspicious ones go to Sapling, which makes the call.</b> The <a href="#" data-goto="scan">Live scanner</a> follows new Ethereum blocks (one about every 12 seconds) and runs two stages:</p>
+  <div class="flow">
+    <div class="fs"><div class="ic">${icon('rules')}</div><div><h3>Stage 1: cheap checks on every transaction<span class="who">ChainSentinel · in memory</span></h3><p>Each transfer in the block is compared with the sanctions list and our labels: money to or from an ${gl('ofac', 'OFAC-sanctioned')} address, a ${gl('mixer', 'mixer')} such as Tornado Cash, a bridge (5 ETH or more) or a known hack wallet; 50 ETH or more landing on an address with no history at all; and ${gl('passthru', 'rapid pass-through')} against the last 50 blocks the scanner remembers. Internal transfers are checked too, once Blockscout has indexed the block. No model call, no cost.</p></div></div>
+    <div class="fs"><div class="ic">${icon('send')}</div><div><h3>Stage 2: only the suspicious ones go to Sapling<span class="who">Banyan Sapling by Mubit</span></h3><p>The address under suspicion gets the same written policy, the same claim and the same evidence format as a full investigation. At most two calls run at once, at most 1.5 a second, and the same wallet tripping the same rule again within 50 blocks is not re-sent.</p></div></div>
+    <div class="fs"><div class="ic">${icon('search')}</div><div><h3>Open the full case<span class="who">ChainSentinel</span></h3><p>Each card links to the full Investigate view for that address, which fetches its whole history and money-flow map.</p></div></div></div>
+  <p>Real blocks are mostly clean, so the feed can be quiet. The <span class="tag sim">Simulated</span> button pushes a made-up transaction through the same checks and Sapling; it is badged everywhere and never counted in the real totals. Offline, the scanner replays a recording of real blocks and says so on screen.</p>
   <h2>What Banyan Sapling is, and what it is not</h2>
   <p>${gl('sapling', 'Banyan Sapling')} is Mubit's policy-verification model, released as a <b>research preview</b>. It takes exactly three non-empty texts, a <b>policy</b>, the <b>evidence</b> and a <b>claim</b>, and returns a calibrated probability for each of four labels plus a ${gl('predset', 'prediction set')}. It returns no explanations and does not check sources, so the explanation paragraph on each verdict is ChainSentinel's reading of Sapling's scores, never Sapling's words.</p>
   <ul class="src">
@@ -661,7 +672,7 @@ async function loadHow() {
   <h2>Real and synthetic data</h2>
   <p>Everything tagged <span class="tag real">Real</span> is public blockchain data fetched live (and cached for offline demos). Everything tagged <span class="tag syn">Synthetic</span> comes from our generator, using random addresses, for laundering shapes with no clean public example. The watchlist's “Simulate suspicious tx” transactions are marked <span class="tag sim">Simulated</span>.</p>
   <ul class="src">
-    <li><b>Ethereum</b><span>Blockscout API, no key</span></li><li><b>Bitcoin</b><span>mempool.space API, no key</span></li>
+    <li><b>Ethereum</b><span>Blockscout API, no key</span></li><li><b>Live blocks</b><span>public JSON-RPC node (publicnode), Blockscout v2 as fallback and for internal transfers</span></li><li><b>Bitcoin</b><span>mempool.space API, no key</span></li>
     <li><b>Sanctions</b><span>OFAC SDN crypto addresses (0xB10C list)</span></li><li><b>Labels</b><span>etherscan-labels (MIT) and Blockscout public tags</span></li>
     <li><b>Typologies</b><span>IBM AMLworld (synthetic), Elliptic, Elliptic++ and Elliptic2 informed the rules; they are not queried live</span></li>
     <li><b>Model</b><span>Banyan Sapling by Mubit (research preview)</span></li></ul>
@@ -673,6 +684,71 @@ async function loadHow() {
       <div class="card"><h4>Facts + rule findings ${vpill(r.verdict)}</h4>${barsHTML(r.sapling_full.probabilities)}<p class="small" style="margin:12px 0 0">Plus: ${r.rules.map(x => `<b>${x.id}</b> ${esc(PLAIN[x.id] || x.name).toLowerCase()}`).join('; ')}.</p></div>`;
     $$('#howcf .bars').forEach((b, i) => animateBars(b, i ? r.sapling_full.probabilities : r.sapling_facts.probabilities));
   } catch (e) { $('#howcf').innerHTML = `<div class="muted">Example unavailable: ${esc(e.message)}</div>`; }
+}
+
+// ---------- live block scanner ----------
+let SC = null, SCT = null, SCCARDS = {}, SCBLK = new Set();
+const PLAIN_S = Object.assign({}, PLAIN, {S1: 'Large amount sent to a brand-new address'});
+const RTERM_S = Object.assign({}, RTERM, {R8: null});
+function scanStart() { if (SCT) return; scanPoll(); SCT = setInterval(scanPoll, 2000); }
+function scanStop() { clearInterval(SCT); SCT = null; }
+async function scanPoll() { try { SC = await api('/api/scanner'); renderScan(SC); } catch (e) { $('#scsrc').innerHTML = `<span class="livedot off"></span><span>Scanner unavailable: ${esc(e.message)}</span>`; } }
+const scanTally = (t) => `${fmtN(t.escalated || 0, 0)} judged: <b class="c-FLAG">${t.FLAG || 0} FLAG</b>, <b class="c-REVIEW">${t.REVIEW || 0} REVIEW</b>, <b class="c-CLEAR">${t.CLEAR || 0} CLEAR</b>`;
+function scanSource(s) {
+  if (s.mode === 'replay') return s.recording ? `<span class="tag rec">Replay</span><span>Offline: replayed recording of blocks <b class="num">#${s.recording.first}–#${s.recording.last}</b> (real Ethereum mainnet, recorded ${esc(s.recording.recorded || '')}). Sapling answers come from the cache.</span>` : `<span class="tag rec">Replay</span><span>${esc(s.error || 'Loading the recorded session…')}</span>`;
+  return `<span class="livedot${s.paused ? ' off' : ''}"></span><span><b>${s.paused ? 'Paused' : 'Live'}</b> · Ethereum mainnet${s.head ? ` · chain head <b class="num">#${s.head}</b>` : ''}${s.source ? ` · blocks from ${esc(s.source)}` : ''} · internal transfers from Blockscout once indexed${s.pending_internal ? ` (${s.pending_internal} blocks waiting)` : ''}</span>`;
+}
+function renderScan(s) {
+  $('#scdot').hidden = s.paused; const pb = $('#scpause'); pb.innerHTML = icon(s.paused ? 'play' : 'pause') + `<span>${s.paused ? 'Resume' : 'Pause'}</span>`;
+  $('#scsrc').innerHTML = scanSource(s);
+  const t = s.totals || {}, b = s.blocks[0], sim = s.simulated || {};
+  const vtxt = v => { const k = Object.entries(v || {}).filter(([, n]) => n); return k.length ? k.map(([x, n]) => `<b class="c-${x}">${n} ${x}</b>`).join(', ') : 'none yet'; };
+  const stage = (n, lbl, sub, cls = '') => `<div class="st ${cls}"><b class="num">${fmtN(n, 0)}</b><span>${lbl}</span><small>${sub}</small></div>`;
+  $('#scfun').innerHTML = `<div class="fline">${b ? `<span class="mono">Block #${b.number}</span> · <b class="num">${fmtN(b.txs, 0)}</b> txs scanned ${icon('arrowr')} <b class="num">${b.suspicious}</b> suspicious ${icon('arrowr')} Sapling: ${b.escalated ? vtxt(b.verdicts) + (b.escalated > Object.values(b.verdicts).reduce((a, x) => a + x, 0) ? ' <span class="muted">(verifying…)</span>' : '') : '<span class="muted">nothing to send</span>'}` : '<span class="muted">Waiting for the first block…</span>'}</div>
+    <div class="stages">${stage(t.blocks || 0, 'Blocks scanned', t.first ? `#${t.first}–#${t.last}` : '&nbsp;')}${stage((t.txs || 0) + (t.internal || 0), 'Transfers checked', `${fmtN(t.txs || 0, 0)} transactions + ${fmtN(t.internal || 0, 0)} internal`)}${stage(t.suspicious || 0, 'Suspicious', 'cheap rules fired', 'sus')}${stage(t.escalated || 0, 'Judged by Sapling', scanTally(t), 'sap')}</div>
+    <div class="ffoot"><span>Running totals, real blocks only.</span>${sim.injected ? `<span class="tag sim">Simulated</span><span>${sim.injected} injected demo tx, counted separately: ${sim.FLAG || 0} FLAG, ${sim.REVIEW || 0} REVIEW, ${sim.CLEAR || 0} CLEAR</span>` : ''}${t.deduped ? `<span class="muted">${t.deduped} repeat hits on the same wallet skipped</span>` : ''}</div>`;
+  $('#scbn').textContent = s.blocks.length ? `latest ${s.blocks.length}` : '';
+  $('#sclim').textContent = `at most ${s.limits.workers} at a time, ${s.limits.rate} calls/s`;
+  // blocks feed: keyed, newest on top
+  const bl = $('#scblocks'); if (s.blocks.length && bl.querySelector('.empty')) bl.innerHTML = '';
+  [...s.blocks].reverse().forEach(x => {
+    let el = bl.querySelector(`[data-b="${x.number}"]`);
+    const html = `<span class="mono bn">#${x.number}</span><span class="muted num small">${fmtT(x.ts).slice(11)} UTC</span><span class="num">${fmtN(x.txs, 0)} txs${x.internal != null ? ` <small class="muted">+${x.internal} internal</small>` : ''}</span><span class="${x.suspicious ? 'c-REVIEW' : 'muted'}">${x.suspicious ? `<b>${x.suspicious}</b> suspicious` : 'clean'}</span><span>${Object.entries(x.verdicts || {}).map(([v, n]) => vpill(v) + (n > 1 ? `<small>×${n}</small>` : '')).join(' ')}</span>`;
+    if (!el) { el = document.createElement('div'); el.className = 'brow rise' + (x.suspicious ? ' hit' : ''); el.dataset.b = x.number; bl.prepend(el); rise(el); }
+    if (el._h !== html) { el.innerHTML = html; el._h = html; el.classList.toggle('hit', !!x.suspicious); }
+  });
+  [...bl.children].slice(30).forEach(e => e.remove());
+  // escalated cards
+  const box = $('#sccards'); if (s.cards.length) $('#scempty') && $('#scempty').remove();
+  [...s.cards].reverse().forEach(c => {
+    let el = SCCARDS[c.id];
+    const key = c.status + (c.status === 'verifying' ? Math.floor((c.elapsed_ms || 0) / 250) : '');
+    if (!el) { el = document.createElement('div'); el.className = 'panel sccard rise'; SCCARDS[c.id] = el; box.prepend(el); rise(el); }
+    if (el._k !== key) { const first = !el._k || (el._k.startsWith('verifying') && c.status === 'done'); el.innerHTML = scanCard(c); el._k = key; el.classList.toggle('sim', c.simulated); if (c.status === 'done' && first) animateBars(el.querySelector('.bars'), c.sapling.probabilities); else el.querySelectorAll('.bars .f').forEach(f => f.style.width = f.dataset.w + '%'); }
+  });
+}
+function scanCard(c) {
+  const head = `<header><span class="${c.simulated ? 'tag sim' : 'tag real'}">${c.simulated ? 'Simulated' : 'Real ETH'}</span><span class="mono">${c.simulated ? 'demo wallet' : esc(short(c.subject))}</span><span class="muted small num">${c.simulated ? 'injected' : 'block #' + c.block}</span>${c.status === 'done' ? vpill(c.verdict) : ''}</header>`;
+  const rules = `<ul class="scrules">${c.rules.map(r => `<li><span class="rc">${r.id}</span><span><b>${esc(PLAIN_S[r.id] || r.name)}</b>${RTERM_S[r.id] ? ' ' + gl(RTERM_S[r.id], '?') : ''}<small>${esc(r.detail)}</small></span></li>`).join('')}</ul>`;
+  let body;
+  if (c.status === 'queued') body = `<div class="sapstate"><i></i><span>Queued for Sapling (rate-limited)</span></div>`;
+  else if (c.status === 'skipped') body = `<div class="sapstate"><i></i><span>Skipped: Sapling queue full</span></div>`;
+  else if (c.status === 'verifying') body = `<div class="sapstate busy"><i></i><span>Sapling is verifying… <span class="num">${fmtN(c.elapsed_ms || 0, 0)} ms</span></span></div>`;
+  else if (c.status === 'error') body = `<div class="errmsg show" style="margin:0">${icon('info')}<span>${esc(c.error)}</span></div>`;
+  else { const S = c.sapling, p = S.probabilities;
+    body = `<p class="vline"><b class="c-${c.verdict}">${c.verdict}</b> ${esc(VPLAIN[c.verdict].replace('this wallet', 'this address'))}</p>${barsHTML(p, null, topLbl(p))}
+      <div class="scmeta"><span>${gl('sapling', 'Sapling')} status <span class="mono">${esc(S.status || '?')}</span>${S.status === 'unsure' ? ' <span class="muted">(ambiguous; our cut-offs decide)</span>' : ''}</span><span class="pset" title="Prediction set: labels Sapling cannot rule out">${Object.keys(LBL).map(k => `<i class="${(S.prediction_set || []).includes(k) ? 'on' : ''}">${LBLS[k]}</i>`).join('')}</span><span class="num">${latTxt(S)}</span>${usageHTML(S.usage)}</div>`; }
+  const real = c.counterparties.filter(x => x.real && x.label);
+  const open = c.simulated ? (real[0] ? `<button class="btn sm" data-inv="${esc(real[0].address)}">Open the real counterparty (${esc(real[0].label.split(' [')[0])})${icon('arrow')}</button>` : '') : `<button class="btn sm" data-inv="${esc(c.subject)}">Open full investigation${icon('arrow')}</button>`;
+  return head + rules + `<div class="scsap">${body}</div><div class="sapfoot">${open}<details class="rd"><summary>Evidence sent to Sapling</summary><pre>${esc(c.evidence)}</pre></details><span class="muted small">Powered by Banyan Sapling · Mubit</span></div>`;
+}
+$('#sccards').addEventListener('click', e => { const b = e.target.closest('[data-inv]'); if (b) investigate(b.dataset.inv); });
+$('#scpause').onclick = async () => { try { SC = await api('/api/scanner/' + (SC && SC.paused ? 'resume' : 'pause'), {method: 'POST'}); renderScan(SC); } catch (e) {} };
+$('#scinj').onclick = async () => { const b = $('#scinj'); b.disabled = true; try { SC = await api('/api/scanner/inject', {method: 'POST'}); renderScan(SC); } catch (e) {} setTimeout(() => b.disabled = false, 1500); };
+async function overviewScan() {
+  try { const s = await api('/api/scanner'); const t = s.totals || {};
+    $('#ov-scan-t').innerHTML = (s.mode === 'replay' ? '<span class="tag rec">Replay</span> ' : '') + (t.blocks ? `Block <span class="mono">#${t.last}</span> · <b>${fmtN(t.blocks, 0)}</b> blocks, <b>${fmtN((t.txs || 0) + (t.internal || 0), 0)}</b> transfers checked · <b>${t.suspicious || 0}</b> suspicious · Sapling ${scanTally(t)}` : 'Starting, waiting for the first block…');
+  } catch (e) { $('#ov-scan-t').textContent = 'Scanner unavailable'; }
 }
 
 // ---------- first-visit onboarding ----------

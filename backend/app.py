@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import engine as E, showcase as S, synth as SY
+import engine as E, showcase as S, synth as SY, scanner as SCN
 
 ROOT = E.ROOT; WL_PATH = os.path.join(E.DATA, "watchlist.json")
 app = FastAPI(title="ChainSentinel")
@@ -69,7 +69,10 @@ def batch():
     return dict(items=out, cutoffs=E.CUT)
 
 # ---------------- watchlist ----------------
-def wl_load(): return json.load(open(WL_PATH)) if os.path.exists(WL_PATH) else {"items": [], "alerts": []}
+DEMO_WL = os.path.join(E.DATA, "watchlist.demo.json")  # committed: two public demo addresses only. watchlist.json (yours) is gitignored.
+def wl_load():
+    if os.path.exists(WL_PATH): return json.load(open(WL_PATH))
+    return json.load(open(DEMO_WL)) if os.path.exists(DEMO_WL) else {"items": [], "alerts": []}
 def wl_save(w): json.dump(w, open(WL_PATH, "w"), indent=1)
 class WatchIn(BaseModel): address: str
 def check_item(it, wl, refresh=True):
@@ -122,6 +125,19 @@ def wl_reset(address: str):
     for it in wl["items"]:
         if it["address"].lower() == address.lower(): it.pop("injected", None); check_item(it, wl, refresh=False)
     wl_save(wl); return wl
+# ---------------- live block scanner ----------------
+@app.get("/api/scanner")
+def scanner_state():
+    SCN.SCANNER.ensure(); return SCN.SCANNER.state()
+@app.post("/api/scanner/pause")
+def scanner_pause(): SCN.SCANNER.paused = True; return SCN.SCANNER.state()
+@app.post("/api/scanner/resume")
+def scanner_resume(): SCN.SCANNER.paused = False; SCN.SCANNER.ensure(); return SCN.SCANNER.state()
+@app.post("/api/scanner/inject")
+def scanner_inject():
+    """DEMO MODE: push a fixed, clearly-labelled SIMULATED suspicious transaction through the same rules and Sapling."""
+    SCN.SCANNER.ensure(); ids = SCN.SCANNER.inject(); return dict(ids=ids, **SCN.SCANNER.state())
+
 async def poller():
     while True:
         await asyncio.sleep(int(os.environ.get("CS_POLL", "60")))

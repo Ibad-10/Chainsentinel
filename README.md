@@ -9,7 +9,11 @@
 
 Each verdict comes out as **FLAG / REVIEW / CLEAR**, with a full explanation behind it.
 
+It also runs a **live block scanner**: every transaction in each new Ethereum block gets cheap checks; only the suspicious ones go to Sapling, which makes the call.
+
 Built at Mubit **Night Shift** (London, Oct 2026) for the *Policy Challenge* side quest.
+
+![live scanner](screenshots/18_live_scanner.png)
 
 ![overview](screenshots/00_overview_dashboard.png)
 
@@ -32,12 +36,24 @@ What Sapling returns, and how we use it honestly:
 - All 3 fields must be non-empty and fit in **16,384 tokens combined**. Oversized requests are rejected, not truncated, so the backend estimates the size first and refuses with a clear error instead of sending.
 - Banyan Sapling is a **research preview**. Model card: https://huggingface.co/MubitLabs/banyan-sapling · Playground: https://huggingface.co/spaces/MubitLabs/banyan-sapling-demo · Endpoint used here: `https://6adbee0669a00298cd4774c9.endpoints.huggingface.cloud`.
 
+## Live block scanner
+**Every transaction gets cheap checks; only suspicious ones go to Sapling, which makes the call.**
+
+- **Source** (free, no key): whole blocks from a public JSON-RPC node (`ethereum-rpc.publicnode.com`, then `eth.llamarpc.com`), one call per block at the chain head; **Blockscout v2** `/api/v2/blocks/{n}/transactions` is the fallback. Blockscout was the first choice, but in testing it ran about 15 blocks (3 minutes) behind the head and needed 4–5 paged calls per block, slower than Ethereum makes blocks. Internal transfers come from Blockscout v2 `/api/v2/blocks/{n}/internal-transactions` on a separate thread (value-carrying `call`s only, first 100 per block). Blockscout indexes internal transfers about 20–25 blocks (~5 minutes) behind the head, so internal hits show up that much later.
+- **Stage 1, every transaction, in memory:** to/from an OFAC-listed address (0xB10C list) → R1; a Tornado Cash or other mixer contract → R2; a bridge deposit of 5 ETH or more → R6; to/from a hack or exploit-labelled address → R8; 50 ETH or more landing on an address with no history (nonce 0 and zero balance at the previous block, at most 8 lookups per block) → S1; rapid pass-through, forwarding ≥80% of what the address received within the last 50 blocks the scanner keeps in memory, for ≥10 ETH → R3. Zero-value calls (votes, approvals) and inbound dust under 0.1 ETH are ignored.
+- **Stage 2, only suspicious addresses:** the same policy, claim and evidence format (`facts` + `Detector findings: …`) as a full investigation, sent to Sapling with a concurrency cap of 2 and a rate limit of 1.5 calls/s (queue capped at 25). The same address tripping the same rules again within 50 blocks is not re-sent.
+- **UI:** a live funnel (*Block #N · 214 txs scanned → 3 suspicious → Sapling: 1 FLAG, 2 REVIEW*) with running totals, a scrolling block feed, escalated cards with a compact Sapling verdict panel (scores, raw status, prediction set, model time, token use) and a link to the full Investigate view, plus pause/resume. A small live counter sits on the Overview.
+- **Simulated hit:** real blocks are mostly clean, so *Inject simulated suspicious tx* runs a fixed made-up scenario (a demo wallet takes 120 ETH from the real Bybit exploiter label and puts 100 ETH into Tornado Cash's 100 ETH pool three blocks later) through the same checks and Sapling. It is badged **SIMULATED**, says so in the evidence Sapling sees, and is never counted in the real totals.
+- **Offline:** `CS_OFFLINE=1` replays `cache/scanner_recording.json`, a recording of real mainnet blocks, labelled on screen *replayed recording of blocks #a–#b*. Sapling answers come from the cache. Re-record with `.venv/bin/python record_scanner.py 12` (online).
+- The scanner starts on first view and pauses itself after 5 minutes with nobody watching. If it falls more than 6 blocks behind it jumps to the head and counts the skipped blocks.
+
 ## Why Ethereum (and Bitcoin)
 Some ledgers have compliance controls built into the protocol (XRPL, for example, has issuer freeze, clawback and deposit authorisation). Ethereum and Bitcoin have none. Anyone can move funds anywhere, so screening has to happen off-chain. Ethereum also holds the best public record of real laundering: Lazarus bridge hacks, Tornado Cash and DEX/bridge hops.
 
 ## Screens
 | Screen | What it does |
 |---|---|
+| **Live scanner** | Follows new Ethereum blocks. Cheap checks on every transaction; suspicious ones go to Sapling. Live funnel, block feed, escalated cards with a compact verdict panel, pause/resume, a SIMULATED demo hit, and offline replay of recorded real blocks. |
 | **Overview** | The landing dashboard. Shows how many wallets were screened, the flagged / review / cleared split, which typologies (R1–R8) fired across real and synthetic wallets, recent watchlist alerts, and quick-start examples split into REAL and SYNTHETIC. Click a typology to open a wallet where it fired, with that rule highlighted. |
 | **Investigate** | Address input plus showcase buttons. A **6-step pipeline stepper** (fetch, build graph, rules fire, ask Sapling, probabilities, cut-offs) animates as the analysis runs. Click any step for a plain-English explanation, and the related part of the screen lights up. The graph grows out from the investigated wallet, groups single-counterparty leaf wallets into clusters (click to expand), labels only key or hovered nodes, and animates money-flow particles sized by value. Shows a graph of flows 1–2 hops out, coloured by tag (exploit, OFAC, mixer, bridge, exchange, DEX, unlabelled) with edge width scaled by value. Below it is a timeline of transfers. The side panel shows the entity, the verdict, Sapling's probability bars for all 4 labels, the rules that fired (click one to highlight the exact flows on the graph), look-alike indicators, a plain-English *why*, a **counterfactual** (Sapling on facts only vs facts + rule findings) and the **exact policy, evidence, claim and raw response** sent to Sapling. |
 | **Batch triage** | 8 real wallets (6 ETH, 2 BTC) and 7 synthetic shapes sorted into Flagged / Review / Cleared columns. Each card is tagged REAL or SYNTHETIC. |
@@ -47,33 +63,38 @@ Some ledgers have compliance controls built into the protocol (XRPL, for example
 
 ## Architecture
 ```
+new block ─► stage 1: cheap rules on every tx (in memory) ─► suspicious only ─► Sapling (≤2 concurrent, ≤1.5/s) ─► card
 address ─► fetch (Blockscout / mempool.space, cached) ─► label (OFAC list, etherscan-labels, Blockscout tags)
         ─► money-flow graph (hop 1–2, ≤60 nodes) ─► 8 rule detectors (deterministic, cite edges)
         ─► evidence text  ──► Banyan Sapling(policy, evidence, claim) ×2  (facts-only, facts+findings)
         ─► verdict: FLAG if P(violation) ≥ 0.60 · CLEAR if P(supported) ≥ 0.45 and P(violation) < 0.20 · else REVIEW
 ```
 - `backend/engine.py`: fetchers, labelling, graph, rules R1–R8, evidence builder, Sapling client with a disk cache, verdict mapping, template "why".
-- `backend/app.py`: FastAPI routes (`/api/analyze`, `/api/synthetic/{case}`, `/api/batch`, `/api/watchlist*`) and the background poller.
+- `backend/scanner.py`: live block scanner (block/internal fetchers, stage-1 rules, Sapling worker pool and rate limit, simulated injection, offline replay, `record()`).
+- `backend/app.py`: FastAPI routes (`/api/analyze`, `/api/synthetic/{case}`, `/api/batch`, `/api/watchlist*`, `/api/scanner*`, `/api/sapling/*`) and the background poller.
 - `backend/synth.py`: **synthetic** EVM-style transaction generator.
-- `static/`: single-page UI (plain JS and [Cytoscape.js](https://js.cytoscape.org/), MIT, vendored for offline use). Fonts are Source Serif 4, IBM Plex Sans and IBM Plex Mono (all SIL OFL 1.1, bundled in `static/vendor/fonts/` with the licence). The visual language (a light "case file") is documented in `../design-research/DESIGN_LANGUAGE.md`, derived from a REA + computed-style study of six reference products (tokens only, no copied code or assets). Icons are hand-written SVG. All code is original. Animations respect `prefers-reduced-motion`.
+- `static/`: single-page UI (plain JS and [Cytoscape.js](https://js.cytoscape.org/), MIT, vendored for offline use). Fonts are Source Serif 4, IBM Plex Sans and IBM Plex Mono (all SIL OFL 1.1, bundled in `static/vendor/fonts/` with the licence). The visual language (a light "case file") is documented in [`docs/DESIGN_LANGUAGE.md`](docs/DESIGN_LANGUAGE.md), derived from a REA + computed-style study of six reference products (tokens only, no copied code or assets). Icons are hand-written SVG. All code is original. Animations respect `prefers-reduced-motion`.
 
 ### Rules
 R1 sanctions exposure (OFAC; Tornado Cash interactions count only after its 8 Aug 2022 designation; inbound dust is ignored) · R2 mixer deposits (direct or one hop away) · R3 rapid pass-through (≥80% out within 24 h, ≥10 ETH) · R4 fan-out / scatter-gather · R5 peel chain · R6 chain-hopping via bridges, or DEX swap layering · R7 round-trip cycle within 7 days · R8 exploit proceeds.
 False-positive guards cover exchange wallets (no fan-out or pass-through flags), deposit forwarding (≥90% of outflow swept to one destination), payroll (repeated recipients funded from custody), and only counting native value for fan-out.
 
 ## Screenshots
-`00_overview_dashboard` · `01_investigate_ronin_R2` · `02_investigate_bybit` · `03_investigate_peel_chain_synthetic` · `04_investigate_binance_lookalike` · `05_batch_triage` · `06_pattern_lab` · `07_watchlist_alert` · `08_explainability_panel` · `09_pipeline_stepper` · `10_how_it_works` · `11_how_it_works_counterfactual` · `12_watchlist_rejects_seed_phrase` · `13_investigate_coinbase_clear` · `14_sapling_verifying` · `15_sapling_verdict_panel` · `16_policy_editor_rerun` · `17_jargon_tooltip` · `compare_overview` / `compare_investigate` (before/after the redesign) (all in `screenshots/`).
+`00_overview_dashboard` · `01_investigate_ronin_R2` · `02_investigate_bybit` · `03_investigate_peel_chain_synthetic` · `04_investigate_binance_lookalike` · `05_batch_triage` · `06_pattern_lab` · `07_watchlist_alert` · `08_explainability_panel` · `09_pipeline_stepper` · `10_how_it_works` · `11_how_it_works_counterfactual` · `12_watchlist_rejects_seed_phrase` · `13_investigate_coinbase_clear` · `14_sapling_verifying` · `15_sapling_verdict_panel` · `16_policy_editor_rerun` · `17_jargon_tooltip` · `18_live_scanner` · `19_live_scanner_escalation` · `compare_overview` / `compare_investigate` (before/after the redesign) (all in `screenshots/`).
 
 ## Run
 ```bash
 ./run.sh                    # http://localhost:8000  (live data; falls back to cache)
 CS_OFFLINE=1 ./run.sh       # offline: showcase wallets + Sapling answers served from ./cache
 .venv/bin/python warm_cache.py   # refresh cache before a demo
+
+.venv/bin/python record_scanner.py 12   # record 12 real blocks for the offline scanner replay
 .venv/bin/python shoot.py        # regenerate screenshots (needs Chrome at /usr/bin/google-chrome)
 ```
 
 ## Data sources (all public)
 - Ethereum transactions, internal txs, token transfers and address tags: **Blockscout** API, no key: https://eth.blockscout.com/api-docs
+- Live blocks: public Ethereum JSON-RPC (https://ethereum-rpc.publicnode.com, https://eth.llamarpc.com), no key
 - Bitcoin: **mempool.space** API, no key: https://mempool.space/docs/api
 - OFAC SDN crypto addresses: https://github.com/0xB10C/ofac-sanctioned-digital-currency-addresses (`lists/` branch)
 - Etherscan-style labels (exchanges, bridges, Tornado Cash), MIT: https://github.com/brianleect/etherscan-labels
@@ -81,7 +102,7 @@ CS_OFFLINE=1 ./run.sh       # offline: showcase wallets + Sapling answers served
 - Model: **Banyan Sapling** by Mubit (research preview).
 
 ### Synthetic-data disclosure
-Everything tagged **SYNTHETIC** (Pattern lab, the synthetic batch cards, and the watchlist "Simulate suspicious tx" transactions marked SIMULATED) is generated by `backend/synth.py` or the demo endpoint. It uses random addresses and doesn't depict any real person or wallet. Everything tagged **REAL** is live public blockchain data. No data from other hackathons was used.
+Everything tagged **SYNTHETIC** (Pattern lab, the synthetic batch cards, the watchlist "Simulate suspicious tx" transactions and the scanner's "Inject simulated suspicious tx" hit, both marked SIMULATED) is generated by `backend/synth.py` or the demo endpoint. It uses random addresses and doesn't depict any real person or wallet. Everything tagged **REAL** is live public blockchain data. No data from other hackathons was used.
 
 ## Results snapshot (cached run, 24 Oct 2026)
 | Kind | Wallet | Rules | Verdict |
@@ -104,6 +125,7 @@ Everything tagged **SYNTHETIC** (Pattern lab, the synthetic batch cards, and the
 - Data is bounded: the first 1,000 native and internal txs, 500 token transfers, and hop 2 for the top 4 outflow recipients only. That can miss later activity on very busy wallets.
 - Labels come from public tag sources and can be incomplete or wrong. There are no Bitcoin entity labels beyond OFAC.
 - The watchlist poller re-fetches watched wallets live, which updates their cached transactions. Run `warm_cache.py` right before switching to `CS_OFFLINE=1` so the cached Sapling answers match.
+- The scanner only sees the short window of blocks it has kept in memory, so its evidence is thin by design; that's why every card links to the full investigation. Most real blocks are clean, so the feed can be quiet for minutes. Token transfers (e.g. USDT to a sanctioned address) are not checked by the scanner yet.
 - This is a triage aid, not legal advice or a sanctions-screening certification.
 
 ## License

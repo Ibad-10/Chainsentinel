@@ -11,6 +11,7 @@
     <div class="brand"><div class="mark" data-i="mark"></div><div><b>ChainSentinel</b><small>Rules gather evidence. Sapling decides.</small></div></div>
     <nav class="nav" id="nav">
       <button data-tab="overview"><span data-i="grid"></span>Overview</button>
+      <button data-tab="scan"><span data-i="pulse"></span>Live scanner<span class="livedot" id="scdot" hidden></span></button>
       <button data-tab="investigate"><span data-i="search"></span>Investigate</button>
       <button data-tab="batch"><span data-i="layers"></span>Batch triage</button>
       <button data-tab="lab"><span data-i="flask"></span>Pattern lab</button>
@@ -29,6 +30,7 @@
       <div class="phead"><div><h1>Overview</h1><p>Is this crypto wallet laundering money? ChainSentinel pulls its public transactions, eight rules gather evidence, and <span class="gl" tabindex="0" data-g="sapling">Banyan Sapling</span> judges that evidence against a written anti-money-laundering policy.</p></div>
         <div class="act"><button class="btn" data-goto="how"><span data-i="book"></span>How it works</button><button class="btn pri" data-goto="investigate"><span data-i="search"></span>Investigate a wallet</button></div></div>
       <div class="onb" id="onb" hidden><ol class="onb3"><li><b>Paste a wallet</b><span>Any public Ethereum or Bitcoin address, or pick an example below.</span></li><li><b>See the money flow</b><span>A map of where the money came from and went, with suspicious flows highlighted.</span></li><li><b>Get a verdict with reasons</b><span>Sapling scores the evidence against the policy: FLAG, REVIEW or CLEAR.</span></li></ol><button class="btn sm ghost" id="onbx" aria-label="Dismiss">Got it</button></div>
+      <div class="ovscan" id="ov-scan" data-goto="scan" role="button" tabindex="0" title="Open the live scanner"><span class="lbl"><i class="livedot"></i>Live scanner</span><span id="ov-scan-t" class="num">Starting…</span><span class="go">Open<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg></span></div>
       <div class="ov-top">
         <div class="panel screened" id="ov-screened"><div class="skel" style="height:150px"></div></div>
         <div class="panel"><header><h2>What the rules spotted</h2><span class="muted">wallets per pattern · click to open one</span></header><div class="typo" id="ov-typo"><div class="skel" style="height:220px;margin-top:10px"></div></div></div>
@@ -70,6 +72,18 @@
         <aside class="ipanel" id="panel"></aside>
       </div>
     </section>
+
+    <!-- LIVE SCANNER -->
+    <section class="view" id="v-scan"><div class="scroll"><div class="page" style="max-width:1400px">
+      <div class="phead"><div><h1>Live scanner</h1><p>Every transaction gets cheap checks; only suspicious ones go to Sapling, which makes the call.</p></div>
+        <div class="act"><button class="btn" id="scinj" title="Demo mode: run a made-up suspicious transaction through the same checks and Sapling. Badged SIMULATED and never counted as real."><span data-i="flask"></span>Inject simulated suspicious tx</button><button class="btn pri" id="scpause"><span data-i="pause"></span><span>Pause</span></button></div></div>
+      <div class="scsrc" id="scsrc"><span class="livedot"></span><span>Connecting to Ethereum…</span></div>
+      <div class="funnel" id="scfun"><div class="skel" style="height:118px"></div></div>
+      <div class="scgrid">
+        <div class="panel"><header><h2>Blocks</h2><span class="muted" id="scbn"></span></header><div class="scblocks" id="scblocks"><div class="empty">Waiting for the next block. Ethereum makes one about every 12 seconds.</div></div></div>
+        <div class="sccol"><header class="schead"><h2>Sent to Sapling</h2><span class="muted small" id="sclim"></span></header><div id="sccards"><div class="panel empty" id="scempty">Nothing suspicious yet. Real blocks are mostly clean, so this can stay quiet for a while. Use <b>Inject simulated suspicious tx</b> to see a hit end to end.</div></div></div>
+      </div>
+    </div></div></section>
 
     <!-- BATCH -->
     <section class="view" id="v-batch"><div class="scroll"><div class="page" style="max-width:1400px">

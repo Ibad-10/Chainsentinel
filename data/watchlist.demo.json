@@ -1,0 +1,19 @@
+{
+ "items": [
+  {
+   "chain": "eth",
+   "address": "0x8caa5e923374116A4024139bd8382f16A715402c",
+   "added": 1792811122,
+   "last_verdict": null,
+   "label": null
+  },
+  {
+   "chain": "btc",
+   "address": "12QtD5BFwRsdNsAZY76UVE1xyCGNTojH9h",
+   "added": 1792811122,
+   "last_verdict": null,
+   "label": "OFAC SDN address"
+  }
+ ],
+ "alerts": []
+}
