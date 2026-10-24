@@ -4,8 +4,19 @@ from concurrent.futures import ThreadPoolExecutor
 import audit, sapling_client as SC, synth as SY, threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA = os.path.join(ROOT, "data"); CACHE = os.path.join(ROOT, "cache")
-os.makedirs(CACHE, exist_ok=True)
+DATA = os.path.join(ROOT, "data")
+SERVERLESS = bool(os.environ.get("VERCEL"))  # Vercel: read-only bundle, so all writes go to /tmp and are best-effort
+CACHE = os.path.join("/tmp", "chainsentinel-cache") if SERVERLESS else os.path.join(ROOT, "cache")
+WDATA = os.path.join("/tmp", "chainsentinel-data") if SERVERLESS else DATA  # writable data dir
+for _d in (CACHE, WDATA):
+    try: os.makedirs(_d, exist_ok=True)
+    except OSError: pass
+def safe_dump(v, path, **kw):
+    """Best-effort JSON write: a failed cache/data write must never break a request."""
+    try:
+        with open(path, "w") as f: json.dump(v, f, **kw)
+        return True
+    except Exception: return False
 OFFLINE = os.environ.get("CS_OFFLINE") == "1"
 BS = "https://eth.blockscout.com"; MP = "https://mempool.space/api"
 RS = "https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api"  # free, no key, Etherscan-compatible; fallback when Blockscout is down
@@ -57,7 +68,7 @@ def cached(key, fn, refresh=False, ttl=None):
     except Exception as e:
         if age is not None: _prov(kind, "cache-fallback", age, p, error=str(e)[:160]); return json.load(open(p))
         raise
-    json.dump(v, open(p, "w")); _prov(kind, "network", 0, p); return v
+    safe_dump(v, p); _prov(kind, "network", 0, p); return v
 DOWN = {}  # host -> time until which we skip it (simple circuit breaker, so a dead source costs one probe, not minutes)
 def http_json(url, params=None, tries=3):
     host = url.split("/")[2]
@@ -75,9 +86,10 @@ def http_json(url, params=None, tries=3):
     raise RuntimeError(f"fetch failed {host}: {last}")
 
 # ---------------- labels ----------------
-_LC_PATH = os.path.join(DATA, "label_cache.json")
-LABEL_CACHE = json.load(open(_LC_PATH)) if os.path.exists(_LC_PATH) else {}
-def save_labels(): json.dump(LABEL_CACHE, open(_LC_PATH, "w"))
+_LC_PATH = os.path.join(WDATA, "label_cache.json"); _LC_SEED = os.path.join(DATA, "label_cache.json")
+try: LABEL_CACHE = json.load(open(_LC_PATH if os.path.exists(_LC_PATH) else _LC_SEED))
+except Exception: LABEL_CACHE = {}
+def save_labels(): safe_dump(dict(LABEL_CACHE), _LC_PATH)
 def local_label(a, chain="eth", extra=None):
     if extra and a in extra: n, c = extra[a]; return {"name": n, "cat": c, "src": "synthetic"}
     if chain == "btc":

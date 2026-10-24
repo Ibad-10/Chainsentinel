@@ -21,6 +21,12 @@ SAP_WORKERS = 2        # concurrency cap for Sapling
 SAP_RATE = 1.5         # Sapling calls per second, at most
 QUEUE_MAX = 25
 IDLE_PAUSE = 300       # auto-pause when nobody has polled for 5 minutes
+# Serverless (Vercel): no background threads. Each poll of /api/scanner advances at most one block and runs at most a
+# few queued Sapling checks inline, with a per-instance hourly cap so a busy public demo cannot drain the endpoint.
+SERVERLESS = E.SERVERLESS
+STEP_EVERY = float(os.environ.get("CS_SCAN_STEP_EVERY", "12"))           # seconds between block steps (about one block)
+SAP_PER_POLL = int(os.environ.get("CS_SCAN_SAPLING_PER_POLL", "2"))      # Sapling calls run inline per poll
+SAP_PER_HOUR = int(os.environ.get("CS_SCAN_SAPLING_PER_HOUR", "60"))     # per-instance cap on scanner Sapling calls
 S1_NAME = "Large value with a fresh counterparty"
 NAMES = dict(E.RULE_NAMES, S1=S1_NAME)
 UTC = lambda ts: dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -204,14 +210,40 @@ class Scanner:
         self.pending_internal = collections.deque(); self.bs_head = 0; self.bs_head_at = 0
         self.pool = ThreadPoolExecutor(SAP_WORKERS); self.inflight = 0; self.last_call = 0.0; self.rl = threading.Lock()
         self.recent = {}; self.seq = 0; self.err = None
+        self.queue = collections.deque(); self.tick_lock = threading.Lock(); self.last_step = 0.0; self.sap_calls = collections.deque()
 
     # ---- lifecycle
     def ensure(self):
         self.last_poll = time.time()
         if self.idle: self.idle = False
+        if SERVERLESS: return self.tick()
         if not self.started:
             self.started = True; threading.Thread(target=self.loop, daemon=True).start()
             if self.mode == "live": threading.Thread(target=self.internal_loop, daemon=True).start()
+    def tick(self, budget=40.0):
+        """Serverless step, called from a request. Non-blocking: if another request is already stepping, just return."""
+        if not self.tick_lock.acquire(blocking=False): return
+        t0 = time.time()
+        try:
+            E.audit.CTX.feature = "scanner"
+            if not self.paused and time.time() - self.last_step >= STEP_EVERY:
+                self.last_step = time.time()
+                try: self.step_live(); self.err = None
+                except Exception as e: self.err = str(e)[:200]
+            n = 0
+            while self.queue and n < SAP_PER_POLL and time.time() - t0 < budget:
+                while self.sap_calls and self.sap_calls[0] < time.time() - 3600: self.sap_calls.popleft()
+                card, b, tally = self.queue.popleft()
+                if len(self.sap_calls) >= SAP_PER_HOUR and not card.get("simulated"):
+                    card.update(status="skipped", error="Public demo cap reached: Sapling checks for the scanner are limited per hour.")
+                    with self.lock: tally["skipped"] += 1; self.inflight -= 1
+                    continue
+                self.sap_calls.append(time.time()); n += 1
+                self.verify(card, b, tally)
+        finally: self.tick_lock.release()
+    def submit(self, card, b, tally):
+        if SERVERLESS: self.queue.append((card, b, tally))
+        else: self.pool.submit(self.verify, card, b, tally)
     def internal_loop(self):
         E.audit.CTX.feature = "scanner-internal"
         """Blockscout indexes internal transfers a little behind the head and is slow, so this runs on its own thread."""
@@ -243,7 +275,7 @@ class Scanner:
             except Exception: fresh[a] = False
         blk["fresh"] = fresh
         self.process(blk); self.cursor += 1
-        self.pending_internal.append((blk["number"], time.time()))
+        if not SERVERLESS: self.pending_internal.append((blk["number"], time.time()))  # internal transfers: threaded mode only
         while len(self.pending_internal) > 120: self.pending_internal.popleft()
     def drain_internal(self):
         if not self.pending_internal: return
@@ -310,7 +342,7 @@ class Scanner:
                 if self.inflight >= QUEUE_MAX: card["status"] = "skipped"; tally["skipped"] += 1; self.cards.appendleft(card); continue
                 self.inflight += 1; self.cards.appendleft(card)
                 if b: b["escalated"] += 1
-            self.pool.submit(self.verify, card, b, tally)
+            self.submit(card, b, tally)
     def verify(self, card, b, tally):
         E.audit.CTX.feature = "scanner-sapling"
         try:
@@ -351,7 +383,7 @@ class Scanner:
                             counterparties=[dict(address=h[3], label=(lab(h[3]) or {}).get("name"), real=not h[3].startswith("0xsim")) for h in hs],
                             status="queued", evidence=facts + " " + flags, src="SIMULATED")
                 self.cards.appendleft(card); self.inflight += 1
-            self.pool.submit(self.verify, card, None, self.sim); ids.append(card["id"])
+            self.submit(card, None, self.sim); ids.append(card["id"])
         return ids
     def state(self):
         with self.lock:
@@ -360,7 +392,7 @@ class Scanner:
             rec = None
             if self.mode == "replay" and self.recording: rec = dict(first=self.recording["blocks"][0]["number"], last=self.recording["blocks"][-1]["number"], recorded=self.recording.get("recorded"), n=len(self.recording["blocks"]))
             return dict(mode=self.mode, paused=self.paused, idle=self.idle, head=self.head, source=self.source, error=self.err, recording=rec, totals=dict(self.tot), simulated=dict(self.sim), blocks=bl, cards=cards,
-                        limits=dict(workers=SAP_WORKERS, rate=SAP_RATE, window=WINDOW, big=BIG, bridge_min=BRIDGE_MIN, pass_min=PASS_MIN), inflight=self.inflight, pending_internal=len(self.pending_internal), internal_src=getattr(self, "internal_src", None))
+                        serverless=SERVERLESS, limits=dict(workers=SAP_WORKERS, per_poll=SAP_PER_POLL if SERVERLESS else None, per_hour=SAP_PER_HOUR if SERVERLESS else None, used_hour=len(self.sap_calls), rate=SAP_RATE, window=WINDOW, big=BIG, bridge_min=BRIDGE_MIN, pass_min=PASS_MIN), inflight=self.inflight, pending_internal=len(self.pending_internal), internal_src=getattr(self, "internal_src", None))
 
 SCANNER = Scanner()
 
