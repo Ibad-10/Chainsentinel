@@ -1,63 +1,110 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>ChainSentinel · on-chain AML with Banyan Sapling</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%23131417%22/%3E%3Cpath d=%22M12 4l6.5 3.7v7.6L12 19l-6.5-3.7V7.7z%22 fill=%22none%22 stroke=%22%237aa2ff%22 stroke-width=%221.8%22/%3E%3C/svg%3E">
+<link rel="preload" href="/static/vendor/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/cytoscape.min.js"></script></head>
 <body>
-<header>
-  <div class="brand"><span class="logo">◆</span> ChainSentinel <small>on-chain AML · rules detect, <b>Banyan Sapling</b> decides</small></div>
-  <nav>
-    <button data-tab="investigate" class="active">Investigate</button>
-    <button data-tab="batch">Batch triage</button>
-    <button data-tab="lab">Pattern lab</button>
-    <button data-tab="watch">Watchlist</button>
-  </nav>
-  <div id="mode" class="pill"></div>
-</header>
-
-<section id="tab-investigate" class="tab active">
-  <div class="searchbar">
-    <input id="addr" placeholder="Paste a public Ethereum (0x…) or Bitcoin address" spellcheck="false">
-    <button id="go" class="primary">Investigate</button>
-    <label class="chk"><input type="checkbox" id="refresh"> live refresh</label>
-    <div id="chips" class="chips"></div>
-  </div>
-  <div class="workspace">
-    <div class="graphcol">
-      <div id="graphhdr" class="graphhdr"></div>
-      <div id="cy" class="cy"></div>
-      <div class="legend" id="legend"></div>
-      <div class="timeline"><div class="tlhdr">Timeline <span id="tlcount"></span></div><div id="timeline"></div></div>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="mark" data-i="mark"></div><div><b>ChainSentinel</b><small>Rules detect, Sapling decides</small></div></div>
+    <nav class="nav" id="nav">
+      <button data-tab="overview"><span data-i="grid"></span>Overview</button>
+      <button data-tab="investigate"><span data-i="search"></span>Investigate</button>
+      <button data-tab="batch"><span data-i="layers"></span>Batch triage</button>
+      <button data-tab="lab"><span data-i="flask"></span>Pattern lab</button>
+      <button data-tab="watch"><span data-i="eye"></span>Watchlist<span class="count" id="wcount"></span></button>
+      <div class="sep"></div>
+      <button data-tab="how"><span data-i="book"></span>How it works</button>
+    </nav>
+    <div class="foot">
+      <div class="mode" id="mode"><span class="dot"></span><span id="modetxt">Connecting…</span></div>
+      <p>Ethereum and Bitcoin. Public addresses only, never keys.</p>
     </div>
-    <aside id="panel" class="panel"><div class="empty">Pick a showcase wallet or paste an address.<br><br>ChainSentinel pulls the wallet's real transactions, draws the money flow, runs 8 AML rules, then asks <b>Banyan Sapling</b> to judge the evidence against a written AML policy.</div></aside>
-  </div>
-</section>
+  </aside>
+  <main>
+    <!-- OVERVIEW -->
+    <section class="view" id="v-overview"><div class="scroll"><div class="page">
+      <div class="phead"><div><h1>Overview</h1><p>Every wallet below went through the same pipeline: on-chain data, eight AML detectors, then Banyan Sapling judging the evidence against a written policy.</p></div>
+        <div class="act"><button class="btn" data-goto="how"><span data-i="book"></span>How it works</button><button class="btn pri" data-goto="investigate"><span data-i="search"></span>Investigate a wallet</button></div></div>
+      <div class="ov-top">
+        <div class="panel screened" id="ov-screened"><div class="skel" style="height:150px"></div></div>
+        <div class="panel"><header><h2>Typologies detected</h2><span class="muted">wallets where each rule fired</span></header><div class="typo" id="ov-typo"><div class="skel" style="height:220px;margin-top:10px"></div></div></div>
+      </div>
+      <div class="ov-mid">
+        <div class="panel"><header><h2>Start with an example</h2><span class="muted">click to open the investigation</span></header><div id="ov-ex"></div></div>
+        <div class="panel"><header><h2>Watchlist alerts</h2><span class="muted" id="ov-wn"></span><div class="act"><button class="btn sm ghost" data-goto="watch">Open<span data-i="arrow"></span></button></div></header><div class="alist" id="ov-alerts"></div></div>
+      </div>
+    </div></div></section>
 
-<section id="tab-batch" class="tab">
-  <div class="toolbar"><button id="runbatch" class="primary">Run batch triage</button> <span id="batchinfo" class="muted"></span></div>
-  <div class="cols">
-    <div class="col"><h3 class="flag">FLAGGED</h3><div id="col-FLAG"></div></div>
-    <div class="col"><h3 class="review">REVIEW</h3><div id="col-REVIEW"></div></div>
-    <div class="col"><h3 class="clear">CLEARED</h3><div id="col-CLEAR"></div></div>
-  </div>
-</section>
+    <!-- INVESTIGATE -->
+    <section class="view" id="v-investigate">
+      <div class="ibar">
+        <label class="field"><span data-i="search"></span><input id="addr" placeholder="Paste a public Ethereum (0x…) or Bitcoin address" spellcheck="false" autocomplete="off"></label>
+        <button id="go" class="btn pri">Investigate</button>
+        <label class="toggle" title="Re-fetch from Blockscout / mempool.space instead of the cache"><input type="checkbox" id="refresh">Live refresh</label>
+        <div class="examples" id="chips"></div>
+      </div>
+      <div class="ierr"><div class="errmsg" id="ierr"></div></div>
+      <div class="steps" id="steps"></div>
+      <div class="stepnote" id="stepnote"><span data-i="info"></span><span>Pick an example or paste an address. Each step lights up as the pipeline runs; click a step to see that part on the graph.</span></div>
+      <div class="ws">
+        <div class="gcol">
+          <div class="gwrap" id="gwrap">
+            <div class="cy" id="cy"></div><canvas class="fx" id="fx"></canvas>
+            <div class="ghdr" id="ghdr" hidden></div>
+            <div class="gtools" id="gtools" hidden>
+              <button class="btn" id="t-fit" title="Zoom to fit"><span data-i="fit"></span>Fit</button>
+              <button class="btn" id="t-exp" title="Expand or collapse grouped leaf wallets"><span data-i="expand"></span><span>Expand groups</span></button>
+              <button class="btn" id="t-lbl" title="Show every label"><span data-i="tag"></span>Labels</button>
+              <button class="btn on" id="t-flow" title="Animate money flow"><span data-i="flow"></span>Flow</button>
+            </div>
+            <div class="legend" id="legend" hidden></div>
+            <div class="gempty" id="gempty"><div><h3>No wallet loaded</h3><p>The money-flow graph appears here: the investigated wallet in the centre, counterparties around it, edge thickness by value.</p></div></div>
+            <div class="tip" id="tip"></div>
+          </div>
+          <div class="tl" id="tl"><header><span data-i="clock"></span><b>Timeline</b><span id="tlcount" class="muted"></span></header><div class="tlrows" id="timeline"></div></div>
+        </div>
+        <aside class="ipanel" id="panel"></aside>
+      </div>
+    </section>
 
-<section id="tab-lab" class="tab">
-  <div class="toolbar"><span class="muted">SYNTHETIC money-laundering shapes (IBM AMLworld-style typologies + crypto-specific). Random addresses, generated by <code>backend/synth.py</code>. Each is drawn, run through the rules, then sent to Sapling.</span></div>
-  <div id="labgrid" class="labgrid"></div>
-</section>
+    <!-- BATCH -->
+    <section class="view" id="v-batch"><div class="scroll"><div class="page" style="max-width:1400px">
+      <div class="phead"><div><h1>Batch triage</h1><p>Real wallets from public chain data and synthetic laundering shapes, sorted by Sapling's verdict. Click any card to open its investigation.</p></div>
+        <div class="act"><span class="bsum" id="batchinfo"></span><button id="runbatch" class="btn pri"><span data-i="play"></span>Run batch triage</button></div></div>
+      <div class="kan">
+        <div class="kcol"><header><span class="vpill FLAG">FLAG</span><h2>Flagged</h2><span class="n" id="n-FLAG"></span></header><div id="col-FLAG"></div></div>
+        <div class="kcol"><header><span class="vpill REVIEW">REVIEW</span><h2>Needs review</h2><span class="n" id="n-REVIEW"></span></header><div id="col-REVIEW"></div></div>
+        <div class="kcol"><header><span class="vpill CLEAR">CLEAR</span><h2>Cleared</h2><span class="n" id="n-CLEAR"></span></header><div id="col-CLEAR"></div></div>
+      </div>
+    </div></div></section>
 
-<section id="tab-watch" class="tab">
-  <div class="notice">🔒 Public addresses only. ChainSentinel never needs, asks for, or accepts private keys or seed phrases. If anyone asks you for those, it is a scam.</div>
-  <div class="toolbar">
-    <input id="waddr" placeholder="Public ETH/BTC address to watch" spellcheck="false">
-    <button id="wadd" class="primary">Watch</button>
-    <button id="wcheck">Check now</button>
-    <span class="muted">Auto-polls every 60s · alerts fire when the verdict or the fired rules change</span>
-  </div>
-  <div class="watchwrap">
-    <div><h3>Watched wallets</h3><table id="wtable"></table></div>
-    <div><h3>Alert feed</h3><div id="alerts"></div></div>
-  </div>
-</section>
+    <!-- LAB -->
+    <section class="view" id="v-lab"><div class="scroll"><div class="page" style="max-width:1400px">
+      <div class="phead"><div><h1>Pattern lab</h1><p><span class="tag syn">Synthetic</span>&nbsp; Laundering shapes from the IBM AMLworld typologies plus crypto-specific ones, generated with random addresses by <code>backend/synth.py</code>. Each is drawn, run through the rules and sent to Sapling. The highlighted flows are what the rules matched.</p></div></div>
+      <div class="labgrid" id="labgrid"></div>
+    </div></div></section>
+
+    <!-- WATCHLIST -->
+    <section class="view" id="v-watch"><div class="scroll"><div class="page">
+      <div class="phead"><div><h1>Watchlist</h1><p>Track public addresses. The server re-checks every 60 seconds and raises an alert when the verdict or the fired rules change.</p></div></div>
+      <div class="notice"><span data-i="lock"></span><div><b>Public addresses only.</b> ChainSentinel never needs, asks for or accepts private keys or seed phrases. Anything that looks like one is rejected. If someone asks you for yours, it is a scam.</div></div>
+      <div class="wform">
+        <label class="field"><span data-i="plus"></span><input id="waddr" placeholder="Public ETH or BTC address to watch" spellcheck="false" autocomplete="off"></label>
+        <button id="wadd" class="btn pri">Watch</button>
+        <button id="wcheck" class="btn"><span data-i="refresh"></span><span>Check now</span></button>
+      </div>
+      <div class="errmsg" id="werr"></div>
+      <div class="wgrid">
+        <div class="panel"><header><h2>Watched wallets</h2><span class="muted">auto-polls every 60 s</span></header><table id="wtable"></table></div>
+        <div class="panel"><header><h2>Alert feed</h2></header><div class="alist" id="alerts"></div></div>
+      </div>
+    </div></div></section>
+
+    <!-- HOW IT WORKS -->
+    <section class="view" id="v-how"><div class="scroll"><div class="read" id="howbody"></div></div></section>
+  </main>
+</div>
 <script src="/static/app.js"></script>
 </body></html>

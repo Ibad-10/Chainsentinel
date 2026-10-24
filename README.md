@@ -11,7 +11,11 @@ Each verdict comes out as **FLAG / REVIEW / CLEAR**, with a full explanation beh
 
 Built at Mubit **Night Shift** (London, Oct 2026) for the *Policy Challenge* side quest.
 
+![overview](screenshots/00_overview_dashboard.png)
+
 ![investigate](screenshots/01_investigate_ronin_R2.png)
+
+![pipeline stepper](screenshots/09_pipeline_stepper.png)
 
 ## Why Ethereum (and Bitcoin)
 Some ledgers have compliance controls built into the protocol (XRPL, for example, has issuer freeze, clawback and deposit authorisation). Ethereum and Bitcoin have none. Anyone can move funds anywhere, so screening has to happen off-chain. Ethereum also holds the best public record of real laundering: Lazarus bridge hacks, Tornado Cash and DEX/bridge hops.
@@ -19,9 +23,11 @@ Some ledgers have compliance controls built into the protocol (XRPL, for example
 ## Screens
 | Screen | What it does |
 |---|---|
-| **Investigate** | Address input plus showcase buttons. Shows a graph of flows 1–2 hops out, coloured by tag (exploit, OFAC, mixer, bridge, exchange, DEX, unlabelled) with edge width scaled by value. Below it is a timeline of transfers. The side panel shows the entity, the verdict, Sapling's probability bars for all 4 labels, the rules that fired (click one to highlight the exact flows on the graph), look-alike indicators, a plain-English *why*, a **counterfactual** (Sapling on facts only vs facts + rule findings) and the **exact policy, evidence, claim and raw response** sent to Sapling. |
+| **Overview** | The landing dashboard. Shows how many wallets were screened, the flagged / review / cleared split, which typologies (R1–R8) fired across real and synthetic wallets, recent watchlist alerts, and quick-start examples split into REAL and SYNTHETIC. Click a typology to open a wallet where it fired, with that rule highlighted. |
+| **Investigate** | Address input plus showcase buttons. A **6-step pipeline stepper** (fetch, build graph, rules fire, ask Sapling, probabilities, cut-offs) animates as the analysis runs. Click any step for a plain-English explanation, and the related part of the screen lights up. The graph grows out from the investigated wallet, groups single-counterparty leaf wallets into clusters (click to expand), labels only key or hovered nodes, and animates money-flow particles sized by value. Shows a graph of flows 1–2 hops out, coloured by tag (exploit, OFAC, mixer, bridge, exchange, DEX, unlabelled) with edge width scaled by value. Below it is a timeline of transfers. The side panel shows the entity, the verdict, Sapling's probability bars for all 4 labels, the rules that fired (click one to highlight the exact flows on the graph), look-alike indicators, a plain-English *why*, a **counterfactual** (Sapling on facts only vs facts + rule findings) and the **exact policy, evidence, claim and raw response** sent to Sapling. |
 | **Batch triage** | 8 real wallets (6 ETH, 2 BTC) and 7 synthetic shapes sorted into Flagged / Review / Cleared columns. Each card is tagged REAL or SYNTHETIC. |
 | **Pattern lab** | Synthetic laundering shapes (peel chain, scatter-gather, cycle, chain-hop, mixer layering, DEX layering, plus a legitimate payroll look-alike), each drawn as a graph with the triggering subgraph highlighted and sent to Sapling. |
+| **How it works** | A plain-English page covering the pipeline, why rules detect and Sapling decides, a live counterfactual on the real Bybit exploiter wallet (facts only vs facts + findings), the cut-off scale, data sources and limitations. |
 | **Watchlist** | Track public addresses. The server polls every 60 s, and there's a *Check now* button. It re-runs rules and Sapling and posts an alert whenever the verdict or the fired rules change. **Demo mode** injects a clearly marked SIMULATED Tornado Cash deposit so the alert can be shown on stage. ChainSentinel never asks for or accepts private keys or seed phrases, and the API rejects input that looks like one. |
 
 ## Architecture
@@ -34,11 +40,14 @@ address ─► fetch (Blockscout / mempool.space, cached) ─► label (OFAC lis
 - `backend/engine.py`: fetchers, labelling, graph, rules R1–R8, evidence builder, Sapling client with a disk cache, verdict mapping, template "why".
 - `backend/app.py`: FastAPI routes (`/api/analyze`, `/api/synthetic/{case}`, `/api/batch`, `/api/watchlist*`) and the background poller.
 - `backend/synth.py`: **synthetic** EVM-style transaction generator.
-- `static/`: single-page UI (plain JS and [Cytoscape.js](https://js.cytoscape.org/), MIT, vendored for offline use). All code is original.
+- `static/`: single-page UI (plain JS and [Cytoscape.js](https://js.cytoscape.org/), MIT, vendored for offline use). Fonts are [Geist and Geist Mono](https://vercel.com/font) (SIL OFL 1.1, bundled in `static/vendor/fonts/` with the licence). Icons are hand-written SVG. All code is original. Animations respect `prefers-reduced-motion`.
 
 ### Rules
 R1 sanctions exposure (OFAC; Tornado Cash interactions count only after its 8 Aug 2022 designation; inbound dust is ignored) · R2 mixer deposits (direct or one hop away) · R3 rapid pass-through (≥80% out within 24 h, ≥10 ETH) · R4 fan-out / scatter-gather · R5 peel chain · R6 chain-hopping via bridges, or DEX swap layering · R7 round-trip cycle within 7 days · R8 exploit proceeds.
 False-positive guards cover exchange wallets (no fan-out or pass-through flags), deposit forwarding (≥90% of outflow swept to one destination), payroll (repeated recipients funded from custody), and only counting native value for fan-out.
+
+## Screenshots
+`00_overview_dashboard` · `01_investigate_ronin_R2` · `02_investigate_bybit` · `03_investigate_peel_chain_synthetic` · `04_investigate_binance_lookalike` · `05_batch_triage` · `06_pattern_lab` · `07_watchlist_alert` · `08_explainability_panel` · `09_pipeline_stepper` · `10_how_it_works` · `11_how_it_works_counterfactual` · `12_watchlist_rejects_seed_phrase` · `13_investigate_coinbase_clear` (all in `screenshots/`).
 
 ## Run
 ```bash
@@ -66,7 +75,7 @@ Everything tagged **SYNTHETIC** (Pattern lab, the synthetic batch cards, and the
 | REAL ETH | Harmony Bridge Exploiter | R3 R8 | FLAG |
 | REAL ETH | Bybit Exploiter | R3 R4 R8 | FLAG |
 | REAL ETH | Binance 14 hot wallet | none (exchange look-alike) | CLEAR |
-| REAL ETH | vitalik.eth (1,350 ETH into Tornado Cash in 2020) | R2 | FLAG (borderline, P(v)=0.61) |
+| REAL ETH | Coinbase 10 exchange wallet | none (exchange look-alike) | CLEAR (P(s)=0.54, P(v)=0.04) |
 | REAL ETH | Random sweeper wallet | none (deposit forwarding) | REVIEW |
 | REAL BTC | 2 OFAC-listed addresses | R1 | FLAG |
 | SYNTHETIC | peel, cycle, chain-hop, mixer layering, DEX layering | various | FLAG |
@@ -78,6 +87,7 @@ Everything tagged **SYNTHETIC** (Pattern lab, the synthetic batch cards, and the
 - On bare facts, Sapling is cautious and mostly returns *insufficient information*. Our rule findings are what move it to a verdict, which the counterfactual panel shows. That means a buggy detector can mislead it, so findings are always shown with the edges behind them.
 - Data is bounded: the first 1,000 native and internal txs, 500 token transfers, and hop 2 for the top 4 outflow recipients only. That can miss later activity on very busy wallets.
 - Labels come from public tag sources and can be incomplete or wrong. There are no Bitcoin entity labels beyond OFAC.
+- The watchlist poller re-fetches watched wallets live, which updates their cached transactions. Run `warm_cache.py` right before switching to `CS_OFFLINE=1` so the cached Sapling answers match.
 - This is a triage aid, not legal advice or a sanctions-screening certification.
 
 ## License
