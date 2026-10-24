@@ -1,0 +1,47 @@
+[
+ {
+  "test": "request shape",
+  "secs": 0.0,
+  "result": "True"
+ },
+ {
+  "test": "parses status/raw_label/prediction_set/probabilities/timing_ms",
+  "secs": 0.0,
+  "result": "['attempts', 'http_status', 'prediction_set', 'probabilities', 'raw_label', 'request_sha256', 'status', 'timing_ms']"
+ },
+ {
+  "test": "cold start: 503, 503, then 200 -> retried with backoff",
+  "secs": 6.0,
+  "result": "3"
+ },
+ {
+  "test": "429 -> retried",
+  "secs": 2.0,
+  "result": "2"
+ },
+ {
+  "test": "400 -> fails at once, no retry",
+  "secs": 0.0,
+  "result": "Sapling rejected the request (HTTP 400): {\"error\": \"Input exceeds 16384 tokens\"}"
+ },
+ {
+  "test": "malformed 200 (no probabilities) -> error",
+  "secs": 2.0,
+  "result": "Sapling response is missing the four label probabilities. Gave up after 2 attempts over 2 s."
+ },
+ {
+  "test": "endpoint stays cold -> gives up at the deadline",
+  "secs": 6.0,
+  "result": "Sapling endpoint is starting up or overloaded (HTTP 503). An HF endpoint that scaled to zero takes a minute or more to wake. Gave up after 3 attempts over 6 s."
+ },
+ {
+  "test": "timeout (server takes 2 s, client waits 1 s) -> retried, then gives up",
+  "secs": 4.0,
+  "result": "Sapling did not answer in time (timeout). Gave up after 2 attempts over 4 s."
+ },
+ {
+  "test": "unreachable -> gives up at the deadline",
+  "secs": 2.0,
+  "result": "Sapling endpoint unreachable (connection failed). Gave up after 2 attempts over 2 s."
+ }
+]

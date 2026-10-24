@@ -1,0 +1,17 @@
+{
+ "empty claim": {
+  "status": 200,
+  "ms": 3775,
+  "body": "{\"error\":\"Missing required non-empty string field: 'claim'\"}"
+ },
+ "missing inputs wrapper": {
+  "status": 400,
+  "ms": 230,
+  "body": "{\"error\":\"Body needs to provide a inputs key, received: b'{\\\"policy\\\":\\\"Crypto AML policy (EVM and Bitcoin wallets). A wallet VIOLATES this policy if ANY rule below is met:\\\\\\\\nR1 Sanctions: it sends "
+ },
+ "oversize (~70k chars evidence)": {
+  "status": 400,
+  "ms": 4064,
+  "body": "{\"error\":\"Input has 33394 tokens, limit 16384; no truncation\"}"
+ }
+}

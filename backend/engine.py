@@ -1,13 +1,16 @@
 """ChainSentinel engine: fetch -> label -> graph -> rules detect -> Sapling decides."""
 import json, os, time, hashlib, collections, statistics, datetime as dt, requests
 from concurrent.futures import ThreadPoolExecutor
-import sapling_client as SC, synth as SY
+import audit, sapling_client as SC, synth as SY, threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "data"); CACHE = os.path.join(ROOT, "cache")
 os.makedirs(CACHE, exist_ok=True)
 OFFLINE = os.environ.get("CS_OFFLINE") == "1"
 BS = "https://eth.blockscout.com"; MP = "https://mempool.space/api"
+RS = "https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api"  # free, no key, Etherscan-compatible; fallback when Blockscout is down
+RPC = "https://ethereum-rpc.publicnode.com"
+CHAIN_TTL = int(os.environ.get("CS_CHAIN_TTL", "300"))  # online: chain data older than this is refetched
 OFAC_ETH = {l.strip().lower() for l in open(os.path.join(DATA, "ofac_eth.txt")) if l.strip()}
 OFAC_XBT = {l.strip() for l in open(os.path.join(DATA, "ofac_xbt.txt")) if l.strip()}
 ESL = json.load(open(os.path.join(DATA, "etherscan_account_labels.json")))  # brianleect/etherscan-labels (MIT)
@@ -31,25 +34,45 @@ def categorise(text):
 
 # ---------------- disk cache ----------------
 def _ck(*parts): return os.path.join(CACHE, hashlib.sha1(json.dumps(parts, sort_keys=True).encode()).hexdigest() + ".json")
-def cached(key, fn, refresh=False):
-    p = _ck(*key)
-    if os.path.exists(p) and (not refresh or OFFLINE):
-        return json.load(open(p))
-    if OFFLINE: raise RuntimeError("offline and not cached: %s" % (key,))
+# Provenance: every cached() answer records where it came from, so results can say LIVE / CACHED / REPLAY honestly.
+_PV = threading.local()
+def prov_reset(): _PV.items = []
+def prov_take():
+    v = getattr(_PV, "items", []); _PV.items = []; return v
+def _prov(kind, src, age, p, **kw):
+    getattr(_PV, "items", []).append(dict(kind=kind, src=src, age_s=None if age is None else int(age), **kw))
+    if src != "network": audit.cache_hit(kind, os.path.basename(p), src, age)
+def cached(key, fn, refresh=False, ttl=None):
+    """Online: answer from disk only if younger than ttl (default CHAIN_TTL; 0 = always live) and refresh is off;
+    if the network fails, fall back to the disk copy but label it cache-fallback. Offline: disk only (replay)."""
+    p = _ck(*key); kind = key[0]; ttl = CHAIN_TTL if ttl is None else ttl
+    age = time.time() - os.path.getmtime(p) if os.path.exists(p) else None
+    if OFFLINE:
+        if age is None: raise RuntimeError("offline and not cached: %s" % (key[:2],))
+        _prov(kind, "replay", age, p); return json.load(open(p))
+    if age is not None and not refresh and age <= ttl:
+        _prov(kind, "cache", age, p); return json.load(open(p))
     try:
         v = fn()
-    except Exception:
-        if os.path.exists(p): return json.load(open(p))
+    except Exception as e:
+        if age is not None: _prov(kind, "cache-fallback", age, p, error=str(e)[:160]); return json.load(open(p))
         raise
-    json.dump(v, open(p, "w")); return v
-def http_json(url, params=None):
-    for i in range(3):
+    json.dump(v, open(p, "w")); _prov(kind, "network", 0, p); return v
+DOWN = {}  # host -> time until which we skip it (simple circuit breaker, so a dead source costs one probe, not minutes)
+def http_json(url, params=None, tries=3):
+    host = url.split("/")[2]
+    if DOWN.get(host, 0) > time.time(): raise RuntimeError(f"{host} is down (skipping for now)")
+    last = None
+    for i in range(tries):
         try:
             r = requests.get(url, params=params, timeout=40)
             if r.status_code == 200: return r.json()
-        except Exception: pass
+            last = f"HTTP {r.status_code}"
+            if r.status_code in (502, 503, 504) and i == 1: break
+        except Exception as e: last = type(e).__name__
         time.sleep(1.5 * (i + 1))
-    raise RuntimeError("fetch failed " + url)
+    DOWN[host] = time.time() + 60
+    raise RuntimeError(f"fetch failed {host}: {last}")
 
 # ---------------- labels ----------------
 _LC_PATH = os.path.join(DATA, "label_cache.json")
@@ -92,21 +115,39 @@ def label(a, chain="eth", extra=None, remote=False):
     return l or {"name": None, "cat": "unknown", "src": None}
 
 # ---------------- fetchers -> normalised txs ----------------
-def _bs(action, a, offset, sort="asc"):
-    return http_json(f"{BS}/api", dict(module="account", action=action, address=a, sort=sort, page=1, offset=offset)).get("result") or []
+def _bs(action, a, offset, sort="asc", via=None):
+    """Etherscan-style account list from Blockscout; Routescan (same API shape, no key) if Blockscout fails."""
+    q = dict(module="account", action=action, address=a, sort=sort, page=1, offset=offset)
+    for name, url in (("Blockscout", f"{BS}/api"), ("Routescan", RS)):
+        try:
+            d = http_json(url, q)
+            r = d.get("result")
+            if isinstance(r, list) or d.get("message", "").startswith("No transactions"):
+                if via is not None: via.add(name)
+                return r if isinstance(r, list) else []
+        except Exception: continue
+    raise RuntimeError("no Ethereum source answered (Blockscout and Routescan both failed)")
 def fetch_eth(addr, refresh=False, max_tx=1000, hop2=4):
     a = addr.lower()
+    via = set()
+    def both(action, n):
+        """Newest n first (so recent activity is always seen); if the wallet has more, add its earliest n/2 too (where exploit flows start)."""
+        rows = _bs(action, a, n, "desc", via)
+        if len(rows) >= n:
+            seen = {(t.get("hash"), t.get("traceId"), t.get("logIndex")) for t in rows}
+            rows += [t for t in _bs(action, a, n // 2, "asc", via) if (t.get("hash"), t.get("traceId"), t.get("logIndex")) not in seen]
+        return rows
     def go():
         out = []
-        for t in _bs("txlist", a, max_tx):
+        for t in both("txlist", max_tx):
             if t.get("isError") != "0": continue
-            out.append(dict(hash=t["hash"], frm=t["from"], to=t["to"] or t.get("contractAddress"), value=int(t["value"]) / 1e18, asset="ETH", ts=int(t["timeStamp"]), kind="native", hop=1))
-        for t in _bs("txlistinternal", a, max_tx):
+            out.append(dict(hash=t["hash"], frm=t["from"], to=t["to"] or t.get("contractAddress"), value=int(t["value"]) / 1e18, asset="ETH", ts=int(t["timeStamp"]), block=int(t.get("blockNumber") or 0), kind="native", hop=1))
+        for t in both("txlistinternal", max_tx):
             if t.get("isError", "0") != "0": continue
-            out.append(dict(hash=t.get("hash") or t.get("transactionHash"), frm=t["from"], to=t["to"] or t.get("contractAddress"), value=int(t["value"]) / 1e18, asset="ETH", ts=int(t["timeStamp"]), kind="internal", hop=1))
-        for t in _bs("tokentx", a, 500):
+            out.append(dict(hash=t.get("hash") or t.get("transactionHash"), frm=t["from"], to=t["to"] or t.get("contractAddress"), value=int(t["value"]) / 1e18, asset="ETH", ts=int(t["timeStamp"]), block=int(t.get("blockNumber") or 0), kind="internal", hop=1))
+        for t in both("tokentx", 500):
             dec = int(t.get("tokenDecimal") or 18)
-            out.append(dict(hash=t["hash"], frm=t["from"], to=t["to"], value=int(t["value"]) / 10 ** dec, asset=t.get("tokenSymbol") or "TOKEN", ts=int(t["timeStamp"]), kind="token", hop=1))
+            out.append(dict(hash=t["hash"], frm=t["from"], to=t["to"], value=int(t["value"]) / 10 ** dec, asset=t.get("tokenSymbol") or "TOKEN", ts=int(t["timeStamp"]), block=int(t.get("blockNumber") or 0), kind="token", hop=1))
         # hop-2: follow the biggest native outflow recipients (bounded)
         outv = collections.defaultdict(float); first = {}
         for t in out:
@@ -115,14 +156,17 @@ def fetch_eth(addr, refresh=False, max_tx=1000, hop2=4):
         cands = [c for c, v in sorted(outv.items(), key=lambda kv: -kv[1]) if v > 1 and local_label(c) is None][:hop2]
         def h2(c):
             res = []
-            for t in _bs("txlist", c, 150):
+            for t in _bs("txlist", c, 150, "asc", via):
                 if t.get("isError") != "0" or t["from"] != c or int(t["timeStamp"]) < first[c]: continue
                 res.append(dict(hash=t["hash"], frm=c, to=t["to"], value=int(t["value"]) / 1e18, asset="ETH", ts=int(t["timeStamp"]), kind="native", hop=2))
             return res
         with ThreadPoolExecutor(4) as ex:
             for r in ex.map(h2, cands): out += r
         return out
-    return cached(("eth", a, max_tx, hop2, "v2"), go, refresh)
+    v = cached(("eth", a, max_tx, hop2, "v3"), go, refresh)
+    items = getattr(_PV, "items", None)
+    if via and items and items[-1]["kind"] == "eth": items[-1]["via"] = sorted(via)
+    return v
 def fetch_btc(addr, refresh=False, peel_hops=6):
     def go():
         txs = http_json(f"{MP}/address/{addr}/txs/chain")
@@ -138,11 +182,11 @@ def fetch_btc(addr, refresh=False, peel_hops=6):
             if focus in in_addrs:
                 for o in outs:
                     if o.get("scriptpubkey_address") and o["scriptpubkey_address"] != focus:
-                        res.append(dict(hash=t["txid"], frm=focus, to=o["scriptpubkey_address"], value=o["value"] / 1e8, asset="BTC", ts=ts, kind="btc", hop=hop))
+                        res.append(dict(hash=t["txid"], frm=focus, to=o["scriptpubkey_address"], value=o["value"] / 1e8, asset="BTC", ts=ts, kind="btc", hop=hop, block=t["status"].get("block_height") or 0))
             else:
                 mine = sum(o["value"] for o in outs if o.get("scriptpubkey_address") == focus) / 1e8
                 src = in_addrs[0] if in_addrs else "coinbase"
-                if mine: res.append(dict(hash=t["txid"], frm=src, to=focus, value=mine, asset="BTC", ts=ts, kind="btc", hop=hop))
+                if mine: res.append(dict(hash=t["txid"], frm=src, to=focus, value=mine, asset="BTC", ts=ts, kind="btc", hop=hop, block=t["status"].get("block_height") or 0))
             return res
         for t in txs: out += edges_of(t, addr, 1)
         # peel trace: follow the large 'remainder' output of 2-output spends
@@ -204,6 +248,15 @@ def build_graph(wallet, txs, chain, extra=None, cap=60):
 RULE_NAMES = {"R1": "Sanctions exposure (OFAC)", "R2": "Mixer deposits", "R3": "Rapid pass-through", "R4": "Fan-out / splitting",
               "R5": "Peel chain", "R6": "Chain-hopping (bridge/swap)", "R7": "Round-trip / cycle", "R8": "Exploit proceeds"}
 def fmt_ts(ts): return dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M UTC") if ts else "?"
+def _after_swaps(w, swaps, raw, cat, unit):
+    """Checkable follow-on: did the wallet then pay an unlabelled address that appears nowhere else in the fetched history?"""
+    last = max(t["ts"] for t in swaps)
+    for t in [t for t in raw if t["frm"] == w and t["ts"] > last][:5]:
+        if cat(t["to"]) != "unknown": continue
+        if sum(1 for x in raw if t["to"] in (x["frm"], x["to"])) == 1:
+            return f" {round((t['ts'] - last) / 60)} min after the last swap, {t['value']:,.2f} {t.get('asset') or unit} went to {t['to'][:10]}…, an unlabelled address with no other activity in the fetched history."
+    return ""
+
 def run_rules(G, chain, extra=None):
     w = G["wallet"]; unit = G["unit"]; E = list(G["all_edges"].values())
     cat = lambda n: label(n, chain, extra)["cat"]
@@ -293,9 +346,13 @@ def run_rules(G, chain, extra=None):
     # R6 chain-hop
     br = [e for e in nat if cat(e["target"]) == "bridge" and e["value"] > 0]
     swaps = [t for t in G.get("raw", []) if t["frm"] == w and cat(t["to"]) == "dex"]
-    if len(swaps) >= 4 and (max(t["ts"] for t in swaps) - min(t["ts"] for t in swaps)) < 86400:
+    if len(swaps) >= 4 and (max(t["ts"] for t in swaps) - min(t["ts"] for t in swaps)) < 86400 and is_exchange:
+        lookalikes.append(f"{len(swaps)} DEX swaps within a day from a labelled exchange wallet: exchanges trade on DEXs as routine liquidity work; ignored for R6.")
+    elif len(swaps) >= 4 and (max(t["ts"] for t in swaps) - min(t["ts"] for t in swaps)) < 86400:
         dex_ids = list({f'{w}->{t["to"]}:native' for t in swaps})
-        add("R6", f"{len(swaps)} back-to-back token swaps through a DEX router within {(max(t['ts'] for t in swaps) - min(t['ts'] for t in swaps)) / 3600:.1f} h with no business purpose (swap layering), then funds leave to a fresh wallet.", dex_ids, [t["to"] for t in swaps])
+        add("R6", f"{len(swaps)} back-to-back token swaps through a DEX router within {(max(t['ts'] for t in swaps) - min(t['ts'] for t in swaps)) / 3600:.1f} h (a swap-layering pattern)." + _after_swaps(w, swaps, G.get("raw", []), cat, unit), dex_ids, [t["to"] for t in swaps])
+    elif br and is_exchange and not any(r["id"] in ("R1", "R8") for r in rules):
+        lookalikes.append(f"{len(br)} transfers into bridge contracts from a labelled exchange wallet: exchanges move float between chains as routine treasury work; ignored for R6.")
     elif br and (sum(e["value"] for e in br) >= 0.1 * max(tin, 1e-9) or any(r["id"] in ("R1", "R8") for r in rules)):
         add("R6", f"{len(br)} transfers totalling {sum(e['value'] for e in br):,.2f} {unit} into bridge/cross-chain swap contracts, first at {fmt_ts(min(e['first'] for e in br))}.", [e["id"] for e in br], [e["target"] for e in br])
     # R7 cycle back to wallet
@@ -349,8 +406,8 @@ def decide(p):
     return "REVIEW"
 SAPLING_TOKEN_LIMIT = 16384  # Sapling rejects (does not truncate) requests whose three fields exceed this combined
 def est_tokens(*texts):
-    """Conservative token estimate (about 3.2 characters per token for this kind of English + hex text)."""
-    return int(sum(len(t) for t in texts) / 3.2) + 1
+    """Conservative token estimate (2.2 characters per token, measured on the live endpoint)."""
+    return int(sum(len(t) for t in texts) / 2.2) + 1  # measured: the live endpoint counted 33,394 tokens for 72,000 chars of hex-heavy evidence (2.16 chars/token)
 def sapling_usage(policy, evidence, claim):
     return {"chars": len(policy) + len(evidence) + len(claim), "est_tokens": est_tokens(policy, evidence, claim), "limit_tokens": SAPLING_TOKEN_LIMIT}
 def sapling(evidence, policy=None, claim=None):
@@ -361,14 +418,16 @@ def sapling(evidence, policy=None, claim=None):
     if use["est_tokens"] > SAPLING_TOKEN_LIMIT * 0.95:
         raise ValueError(f"Sapling input too large: about {use['est_tokens']:,} tokens, limit {SAPLING_TOKEN_LIMIT:,}. Sapling rejects oversized requests instead of truncating, so shorten the policy or evidence.")
     payload = {"policy": policy, "evidence": evidence, "claim": claim}
-    def go():
-        r = SC.check(evidence, claim=claim, policy=policy)
-        if "error" in r: raise RuntimeError(r["error"])
-        return r
-    t0 = time.time(); hit = [True]
-    def go2(): hit[0] = False; return go()
-    r = cached(("sapling", payload), go2); r = dict(r)
-    r["request"] = payload; r["wall_ms"] = int((time.time() - t0) * 1000); r["from_cache"] = hit[0]; r["usage"] = use
+    def go(): return SC.check(evidence, claim=claim, policy=policy)
+    t0 = time.time(); n0 = len(getattr(_PV, "items", []))
+    # Online: always a live network call (ttl=0); the answer is saved so offline mode can replay it.
+    # If Sapling is unreachable and this exact request was answered before, the old answer is used and labelled cache-fallback.
+    r = dict(cached(("sapling", payload), go, ttl=0))
+    pv = (getattr(_PV, "items", []) or [{}])[-1] if len(getattr(_PV, "items", [])) > n0 else {"src": "network"}
+    r["request"] = payload; r["wall_ms"] = int((time.time() - t0) * 1000); r["usage"] = use
+    r["src"] = pv.get("src", "network"); r["from_cache"] = r["src"] != "network"
+    if pv.get("error"): r["fallback_reason"] = pv["error"]
+    r["age_s"] = pv.get("age_s")
     return r
 PLAIN_LBL = {"violation": "breaks the policy", "supported": "looks legitimate", "insufficient_information": "not enough to tell", "inconsistent_context": "the evidence contradicts itself"}
 def why(rules, lookalikes, verdict, p):
@@ -387,8 +446,15 @@ def why(rules, lookalikes, verdict, p):
             "REVIEW": " Neither score is decisive, so, following Mubit's guidance for ambiguous cases, a person should review it."}[verdict]
     return txt
 
+def chain_head(chain):
+    """Current chain tip, so a result can show how fresh its newest transaction is."""
+    if OFFLINE: return None
+    try:
+        if chain == "btc": return int(requests.get(f"{MP}/blocks/tip/height", timeout=10).text)
+        return int(requests.post(RPC, json={"jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber", "params": []}, timeout=10).json()["result"], 16)
+    except Exception: return None
 def analyze(chain, address, refresh=False, extra_txs=None, synthetic_case=None):
-    extra = None; synthetic = False; meta = {}
+    extra = None; synthetic = False; meta = {}; prov_reset(); t_start = time.time()
     if synthetic_case:
         title, fn, expected = SY.CASES[synthetic_case]; w, raw = fn(); synthetic = True; extra = SY.NAMED
         txs = [dict(hash=f"synthetic-{i}", frm=t["frm"].lower(), to=t["to"].lower(), value=t["value"], asset="ETH" if t["asset"] == "ETH" else t["asset"], ts=t["ts"], kind="native" if t["asset"] == "ETH" else "token", hop=1 if w in (t["frm"], t["to"]) else 2) for i, t in enumerate(raw)]
@@ -405,12 +471,25 @@ def analyze(chain, address, refresh=False, extra_txs=None, synthetic_case=None):
     rules, lookalikes, stats = run_rules(G, chain, extra)
     facts = facts_text(G, txs, chain, stats, extra, synthetic)
     flags = flags_text(rules, lookalikes)
+    chain_pv = [x for x in prov_take() if x["kind"] in ("eth", "btc")]
     s_facts = sapling(facts); s_full = sapling(facts + " " + flags)
     verdict = decide(s_full["probabilities"])
     G.pop("all_edges"); G.pop("raw")
-    timeline = sorted([dict(ts=t["ts"], hash=t["hash"], frm=t["frm"], to=t["to"], value=t["value"], asset=t["asset"], kind=t.get("kind"), hop=t.get("hop", 1)) for t in txs if t["value"] > 0], key=lambda t: t["ts"])
+    timeline = sorted([dict(ts=t["ts"], block=t.get("block"), hash=t["hash"], frm=t["frm"], to=t["to"], value=t["value"], asset=t["asset"], kind=t.get("kind"), hop=t.get("hop", 1)) for t in txs if t["value"] > 0], key=lambda t: t["ts"])
     edge_ids = {e["id"] for e in G["edges"]}
     for r in rules: r["edges_in_graph"] = [x for x in r["edges"] if x in edge_ids]
     return dict(chain=chain, address=G["wallet"], synthetic=synthetic, meta=meta, label=label(G["wallet"], chain, extra), graph=G, rules=rules, lookalikes=lookalikes, stats=stats,
                 sapling_facts=s_facts, sapling_full=s_full, verdict=verdict, verdict_facts=decide(s_facts["probabilities"]), cutoffs=CUT,
-                why=why(rules, lookalikes, verdict, s_full["probabilities"]), timeline=timeline[-400:], n_tx=len(txs))
+                why=why(rules, lookalikes, verdict, s_full["probabilities"]), timeline=timeline[-400:], n_tx=len(txs),
+                provenance=provenance(chain, txs, synthetic, chain_pv, (s_facts, s_full), t_start))
+def provenance(chain, txs, synthetic, chain_pv, saps, t_start):
+    """One honest answer to 'is this live?': where the chain data and each Sapling answer came from, and how fresh."""
+    c = chain_pv[0] if chain_pv else {}
+    real = [t for t in txs if not str(t.get("hash", "")).startswith(("synthetic", "SIMULATED"))]
+    newest = max(real, key=lambda t: t.get("ts") or 0) if real else None
+    head = None if synthetic else chain_head(chain)
+    src = "synthetic" if synthetic else c.get("src", "network")
+    return dict(chain_src=src, chain_age_s=c.get("age_s"), chain_via=c.get("via") or ([] if synthetic else (["mempool.space"] if chain == "btc" else [])), chain_error=c.get("error"),
+                newest_tx_ts=newest and newest.get("ts"), newest_tx_block=newest and newest.get("block"), chain_head=head,
+                sapling_src=[s.get("src") for s in saps], sapling_ms=[(s.get("timing_ms") or {}).get("model") for s in saps], sapling_wall_ms=[s.get("wall_ms") for s in saps],
+                sapling_attempts=[s.get("attempts") for s in saps], sapling_age_s=[s.get("age_s") for s in saps], offline=OFFLINE, checked_at=int(time.time()), total_ms=int((time.time() - t_start) * 1000))

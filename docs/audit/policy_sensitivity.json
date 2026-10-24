@@ -1,0 +1,43 @@
+{
+ "subject": "0x6bb2f85965b9039e89617122ae7fa200c9953a1d",
+ "block": 26260196,
+ "rules": [
+  {
+   "id": "R2",
+   "name": "Mixer deposits",
+   "detail": "In block #26260196 it received 0.9945 ETH from Tornado Cash: 1 ETH, a mixer contract (internal transfer 0xa7bda435a8\u2026)"
+  }
+ ],
+ "runs": [
+  {
+   "policy": "default policy",
+   "verdict": "FLAG",
+   "status": "unsure",
+   "p_violation": 0.8823523259076546,
+   "p_supported": 0.03614264488089091,
+   "src": "network",
+   "model_ms": 1084.7937560029095,
+   "sha": "92c8d9e884fcae30"
+  },
+  {
+   "policy": "policy without R2 (mixers)",
+   "verdict": "REVIEW",
+   "status": "unsure",
+   "p_violation": 0.35722708032218264,
+   "p_supported": 0.105948143928544,
+   "src": "network",
+   "model_ms": 1080.3988710031263,
+   "sha": "549f087c1ec92fc1"
+  },
+  {
+   "policy": "default + R9 'any mixer deposit is a violation'",
+   "verdict": "FLAG",
+   "status": "unsure",
+   "p_violation": 0.8554767065533969,
+   "p_supported": 0.04275481173169999,
+   "src": "network",
+   "model_ms": 1081.3756529969396,
+   "sha": "273c93f4adcb5463"
+  }
+ ]
+}

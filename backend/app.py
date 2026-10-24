@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import engine as E, showcase as S, synth as SY, scanner as SCN
+import audit, engine as E, showcase as S, synth as SY, scanner as SCN
 
 ROOT = E.ROOT; WL_PATH = os.path.join(E.DATA, "watchlist.json")
 app = FastAPI(title="ChainSentinel")
@@ -22,17 +22,18 @@ LOCK = threading.Lock()
 def slim(r):
     p = r["sapling_full"]["probabilities"]
     return dict(chain=r["chain"], address=r["address"], synthetic=r["synthetic"], verdict=r["verdict"], verdict_facts=r["verdict_facts"], rules=[x["id"] for x in r["rules"]],
-                p=p, p_facts=r["sapling_facts"]["probabilities"], label=r["label"]["name"], lookalikes=r["lookalikes"])
+                p=p, p_facts=r["sapling_facts"]["probabilities"], label=r["label"]["name"], lookalikes=r["lookalikes"], prov=r.get("provenance"))
 
 @app.get("/api/analyze")
 def analyze(address: str, refresh: bool = False):
-    chain = detect_chain(address)
+    chain = detect_chain(address); audit.CTX.feature = "investigate"
     try:
         with LOCK: return E.analyze(chain, address.strip(), refresh=refresh)
     except Exception as e: raise HTTPException(502, f"analysis failed: {e}")
 @app.get("/api/synthetic/{case}")
 def synthetic(case: str):
     if case not in SY.CASES: raise HTTPException(404)
+    audit.CTX.feature = "synthetic"
     with LOCK: return E.analyze("eth", None, synthetic_case=case)
 class VerifyReq(BaseModel):
     policy: str
@@ -41,6 +42,7 @@ class VerifyReq(BaseModel):
 @app.post("/api/sapling/verify")
 def sapling_verify(req: VerifyReq):
     """Re-run Banyan Sapling on a user-edited policy (policy-driven verification). Same evidence and claim."""
+    audit.CTX.feature = "policy-editor"
     if len(req.policy) > 20000 or len(req.evidence) > 80000 or len(req.claim) > 2000: raise HTTPException(400, "Input too long for this demo.")
     try: r = E.sapling(req.evidence, policy=req.policy, claim=req.claim)
     except ValueError as e: raise HTTPException(400, str(e))
@@ -55,18 +57,25 @@ def sapling_policy():
 @app.get("/api/showcase")
 def showcase():
     return dict(real=S.REAL, synthetic=[dict(case=k, title=v[0], expected=v[2]) for k, v in SY.CASES.items()], cutoffs=E.CUT, offline=E.OFFLINE, sapling_url=E.SC.URL)
+BATCH_MEMO = {}
 @app.get("/api/batch")
-def batch():
+def batch(refresh: bool = False):
+    """Runs every showcase wallet live (chain data per CS_CHAIN_TTL, Sapling always live). The whole run is reused for
+    CS_BATCH_TTL seconds (default 600) so the Overview doesn't re-run 30 Sapling calls on every visit; ran_at says when."""
+    ttl = int(os.environ.get("CS_BATCH_TTL", "600"))
+    if not refresh and BATCH_MEMO.get("at", 0) > time.time() - ttl: return dict(BATCH_MEMO["r"], reused=True)
+    audit.CTX.feature = "batch"; t0 = time.time()
     out = []
     for c in S.REAL:
         try:
-            with LOCK: r = E.analyze(c["chain"], c["address"])
+            with LOCK: r = E.analyze(c["chain"], c["address"], refresh=refresh)
             out.append(dict(kind="REAL", title=c["title"], expected=c["expected"], **slim(r)))
         except Exception as e: out.append(dict(kind="REAL", title=c["title"], address=c["address"], chain=c["chain"], error=str(e), verdict="REVIEW"))
     for k, (title, _, exp) in SY.CASES.items():
         with LOCK: r = E.analyze("eth", None, synthetic_case=k)
         out.append(dict(kind="SYNTHETIC", title=title, expected=exp, case=k, **slim(r)))
-    return dict(items=out, cutoffs=E.CUT)
+    r = dict(items=out, cutoffs=E.CUT, ran_at=int(time.time()), run_ms=int((time.time() - t0) * 1000), offline=E.OFFLINE)
+    BATCH_MEMO.update(at=time.time(), r=r); return dict(r, reused=False)
 
 # ---------------- watchlist ----------------
 DEMO_WL = os.path.join(E.DATA, "watchlist.demo.json")  # committed: two public demo addresses only. watchlist.json (yours) is gitignored.
@@ -76,6 +85,7 @@ def wl_load():
 def wl_save(w): json.dump(w, open(WL_PATH, "w"), indent=1)
 class WatchIn(BaseModel): address: str
 def check_item(it, wl, refresh=True):
+    audit.CTX.feature = getattr(audit.CTX, "feature", None) or "watchlist"
     with LOCK: r = E.analyze(it["chain"], it["address"], refresh=refresh, extra_txs=it.get("injected") or None)
     rules = [x["id"] for x in r["rules"]]; now = int(time.time())
     if it.get("last_verdict") is not None:
@@ -141,7 +151,7 @@ def scanner_inject():
 async def poller():
     while True:
         await asyncio.sleep(int(os.environ.get("CS_POLL", "60")))
-        try: await asyncio.to_thread(wl_check)
+        try: await asyncio.to_thread(lambda: (setattr(audit.CTX, 'feature', 'watchlist-poller'), wl_check()))
         except Exception: pass
 @app.on_event("startup")
 async def _start(): asyncio.create_task(poller())

@@ -20,13 +20,15 @@ async def main():
         pg = await b.new_page(viewport={"width": 1680, "height": 1000})
         for name, path, wait in SHOTS:
             await pg.goto(B + path); await pg.wait_for_timeout(wait)
+            if "batch" in path: await pg.wait_for_selector("#col-FLAG .bcard", timeout=300000); await pg.wait_for_timeout(1500)
+            if "?a=" in path or "?s=" in path: await pg.wait_for_selector("#c-verdict", timeout=120000); await pg.wait_for_timeout(4000)
             await pg.screenshot(path="screenshots/" + name); print("saved", name)
         # explainability: counterfactual + exactly what Sapling saw
-        await pg.goto(B + "/?s=scatter_gather&rule=1"); await pg.wait_for_timeout(8000)
+        await pg.goto(B + "/?s=scatter_gather&rule=1"); await pg.wait_for_selector("#c-cf", timeout=90000); await pg.wait_for_timeout(3000)
         await pg.evaluate("document.querySelectorAll('#c-req details').forEach((d,i)=>d.open=i<2); document.querySelector('#c-cf').scrollIntoView({block:'start'})")
         await pg.wait_for_timeout(600); await pg.screenshot(path="screenshots/08_explainability_panel.png"); print("saved 08")
         # pipeline stepper: click step 3 (rules fire) on the Bybit investigation
-        await pg.goto(B + f"/?a={BYBIT}"); await pg.wait_for_timeout(9000)
+        await pg.goto(B + f"/?a={BYBIT}"); await pg.wait_for_selector("#c-verdict", timeout=90000); await pg.wait_for_timeout(5000)
         await pg.click('#steps .step[data-k="2"]'); await pg.wait_for_timeout(1800)
         await pg.screenshot(path="screenshots/09_pipeline_stepper.png"); print("saved 09")
         # how it works: counterfactual and cut-offs
@@ -43,7 +45,7 @@ async def main():
         await pg.screenshot(path="screenshots/14_sapling_verifying.png"); print("saved 14")
         await pg.wait_for_timeout(6000); await pg.locator("#c-verdict").screenshot(path="screenshots/15_sapling_verdict_panel.png"); print("saved 15")
         # policy editor: drop rule R8 from the written policy and re-run Sapling live on the Bybit evidence
-        await pg.goto(B + f"/?a={BYBIT}"); await pg.wait_for_timeout(9000)
+        await pg.goto(B + f"/?a={BYBIT}"); await pg.wait_for_selector("#c-verdict", timeout=90000); await pg.wait_for_timeout(5000)
         await pg.click("#poledit"); await pg.wait_for_timeout(400)
         await pg.evaluate("""() => { const t = document.querySelector('#poltext'); t.value = t.value.replace(/R8[^\\n]*\\n/, ''); t.dispatchEvent(new Event('input')); }""")
         await pg.click("#polrun"); await pg.wait_for_selector("#polres .polcmp", timeout=60000); await pg.wait_for_timeout(1200)

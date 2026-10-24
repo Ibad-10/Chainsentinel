@@ -1,0 +1,21 @@
+05:40:17 None {} 0 None None
+05:40:27 26260171 {'blocks': 2, 'txs': 430, 'first': 26260170, 'last': 26260171} 2 None None
+05:40:37 26260172 {'blocks': 3, 'txs': 673, 'first': 26260170, 'last': 26260172} 3 None None
+05:40:47 26260172 {'blocks': 3, 'txs': 673, 'first': 26260170, 'last': 26260172, 'internal': 37} 2 Routescan None
+05:40:57 26260173 {'blocks': 4, 'txs': 968, 'first': 26260170, 'last': 26260173, 'internal': 155} 2 Routescan None
+05:41:07 26260174 {'blocks': 5, 'txs': 1145, 'first': 26260170, 'last': 26260174, 'internal': 241} 2 Routescan None
+05:41:17 26260175 {'blocks': 6, 'txs': 1344, 'first': 26260170, 'last': 26260175, 'internal': 241} 3 Routescan None
+05:41:27 26260176 {'blocks': 7, 'txs': 1656, 'first': 26260170, 'last': 26260176, 'internal': 317} 3 Routescan None
+05:41:37 26260176 {'blocks': 7, 'txs': 1656, 'first': 26260170, 'last': 26260176, 'internal': 471} 2 Routescan None
+05:41:47 26260177 {'blocks': 8, 'txs': 1864, 'first': 26260170, 'last': 26260177, 'internal': 585} 2 Routescan None
+05:41:57 26260178 {'blocks': 9, 'txs': 2116, 'first': 26260170, 'last': 26260178, 'internal': 656} 2 Routescan None
+05:42:07 26260179 {'blocks': 10, 'txs': 2262, 'first': 26260170, 'last': 26260179, 'internal': 703} 2 Routescan None
+05:42:17 26260180 {'blocks': 11, 'txs': 2560, 'first': 26260170, 'last': 26260180, 'internal': 778, 'suspicious': 1} 2 Routescan None
+05:42:27 26260181 {'blocks': 12, 'txs': 2743, 'first': 26260170, 'last': 26260181, 'internal': 799, 'suspicious': 1, 'escalated': 1, 'REVIEW': 1} 2 Routescan None
+05:42:37 26260181 {'blocks': 12, 'txs': 2743, 'first': 26260170, 'last': 26260181, 'internal': 799, 'suspicious': 1, 'escalated': 1, 'REVIEW': 1} 2 Routescan None
+05:42:47 26260182 {'blocks': 13, 'txs': 2835, 'first': 26260170, 'last': 26260182, 'internal': 922, 'suspicious': 1, 'escalated': 1, 'REVIEW': 1} 2 Routescan None
+05:42:57 26260183 {'blocks': 14, 'txs': 3093, 'first': 26260170, 'last': 26260183, 'internal': 1013, 'suspicious': 2, 'escalated': 2, 'REVIEW': 2} 2 Routescan None
+05:43:07 26260184 {'blocks': 15, 'txs': 3273, 'first': 26260170, 'last': 26260184, 'internal': 1043, 'suspicious': 2, 'escalated': 2, 'REVIEW': 2} 2 Routescan None
+05:43:17 26260185 {'blocks': 16, 'txs': 3605, 'first': 26260170, 'last': 26260185, 'internal': 1111, 'suspicious': 3, 'escalated': 3, 'REVIEW': 3} 2 Routescan None
+05:43:27 26260186 {'blocks': 17, 'txs': 3864, 'first': 26260170, 'last': 26260186, 'internal': 1369, 'suspicious': 4, 'escalated': 3, 'REVIEW': 3} 2 Routescan None
+05:43:37 26260187 {'blocks': 18, 'txs': 4049, 'first': 26260170, 'last': 26260187, 'internal': 1369, 'suspicious': 4, 'escalated': 4, 'REVIEW': 4} 3 Routescan None

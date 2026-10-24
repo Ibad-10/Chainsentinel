@@ -1,0 +1,563 @@
+{
+ "started": "2026-10-24 05:43:52 BST",
+ "runs": [
+  {
+   "feature": "investigate",
+   "label": "Bybit Exploiter",
+   "address": "0x47666Fab8bd0Ac7003bce3f5C3585383F09486E2",
+   "ms": 6967,
+   "verdict": "FLAG",
+   "verdict_facts": "FLAG",
+   "rules": [
+    "R3",
+    "R4",
+    "R8"
+   ],
+   "n_tx": 1766,
+   "p_violation": 0.903,
+   "status": "unsure",
+   "chain_src": "network",
+   "chain_age_s": 0,
+   "chain_via": [
+    "Blockscout"
+   ],
+   "chain_error": null,
+   "newest_tx_ts": 1781165255,
+   "newest_tx_block": 25292917,
+   "chain_head": 26260188,
+   "sapling_src": [
+    "network",
+    "network"
+   ],
+   "sapling_ms": [
+    1102.3555630017654,
+    1107.7881379969767
+   ],
+   "sapling_wall_ms": [
+    1581,
+    1165
+   ],
+   "sapling_attempts": [
+    1,
+    1
+   ],
+   "offline": false,
+   "checked_at": 1792817039,
+   "total_ms": 6957
+  },
+  {
+   "feature": "investigate",
+   "label": "Ronin Bridge Exploiter",
+   "address": "0x098B716B8Aaf21512996dC57EB0615e2383E2f96",
+   "ms": 5414,
+   "verdict": "FLAG",
+   "verdict_facts": "FLAG",
+   "rules": [
+    "R1",
+    "R8"
+   ],
+   "n_tx": 1182,
+   "p_violation": 0.885,
+   "status": "unsure",
+   "chain_src": "network",
+   "chain_age_s": 0,
+   "chain_via": [
+    "Blockscout"
+   ],
+   "chain_error": null,
+   "newest_tx_ts": 1791494555,
+   "newest_tx_block": 26150338,
+   "chain_head": 26260189,
+   "sapling_src": [
+    "network",
+    "network"
+   ],
+   "sapling_ms": [
+    1108.5009109956445,
+    1110.0974590008263
+   ],
+   "sapling_wall_ms": [
+    1142,
+    1345
+   ],
+   "sapling_attempts": [
+    1,
+    1
+   ],
+   "offline": false,
+   "checked_at": 1792817045,
+   "total_ms": 5404
+  },
+  {
+   "feature": "investigate",
+   "label": "Coinbase 10",
+   "address": "0xA9D1e08C7793af67e9d92fe308d5697FB81d3E43",
+   "ms": 19830,
+   "verdict": "CLEAR",
+   "verdict_facts": "REVIEW",
+   "rules": [],
+   "n_tx": 3251,
+   "p_violation": 0.044,
+   "status": "unsure",
+   "chain_src": "network",
+   "chain_age_s": 0,
+   "chain_via": [
+    "Blockscout"
+   ],
+   "chain_error": null,
+   "newest_tx_ts": 1792816991,
+   "newest_tx_block": 26260185,
+   "chain_head": 26260191,
+   "sapling_src": [
+    "network",
+    "network"
+   ],
+   "sapling_ms": [
+    1090.4830309955287,
+    1091.4341480020084
+   ],
+   "sapling_wall_ms": [
+    5159,
+    5313
+   ],
+   "sapling_attempts": [
+    1,
+    1
+   ],
+   "offline": false,
+   "checked_at": 1792817064,
+   "total_ms": 19820
+  },
+  {
+   "feature": "investigate",
+   "label": "Random sender in block #26260191",
+   "address": "0x4aeaed743da352a30b175d93c4a85563ebcfd0d3",
+   "ms": 17950,
+   "verdict": "FLAG",
+   "verdict_facts": "REVIEW",
+   "rules": [
+    "R6"
+   ],
+   "n_tx": 225,
+   "p_violation": 0.883,
+   "status": "unsure",
+   "chain_src": "network",
+   "chain_age_s": 0,
+   "chain_via": [
+    "Blockscout"
+   ],
+   "chain_error": null,
+   "newest_tx_ts": 1792811411,
+   "newest_tx_block": 26259720,
+   "chain_head": 26260192,
+   "sapling_src": [
+    "network",
+    "network"
+   ],
+   "sapling_ms": [
+    1092.2020550060552,
+    1095.1839319968713
+   ],
+   "sapling_wall_ms": [
+    4484,
+    5396
+   ],
+   "sapling_attempts": [
+    1,
+    1
+   ],
+   "offline": false,
+   "checked_at": 1792817083,
+   "total_ms": 17944
+  },
+  {
+   "feature": "investigate",
+   "label": "OFAC-listed ETH address (not cached)",
+   "address": "0xf3701f445b6bdafedbca97d1e477357839e4120d",
+   "ms": 12042,
+   "verdict": "FLAG",
+   "verdict_facts": "FLAG",
+   "rules": [
+    "R1"
+   ],
+   "n_tx": 87,
+   "p_violation": 0.956,
+   "status": "unsure",
+   "chain_src": "network",
+   "chain_age_s": 0,
+   "chain_via": [
+    "Blockscout"
+   ],
+   "chain_error": null,
+   "newest_tx_ts": 1685533451,
+   "newest_tx_block": 17378637,
+   "chain_head": 26260193,
+   "sapling_src": [
+    "network",
+    "network"
+   ],
+   "sapling_ms": [
+    1098.0817180025042,
+    1093.5487570022815
+   ],
+   "sapling_wall_ms": [
+    4914,
+    5491
+   ],
+   "sapling_attempts": [
+    1,
+    1
+   ],
+   "offline": false,
+   "checked_at": 1792817095,
+   "total_ms": 12036
+  },
+  {
+   "feature": "policy-editor",
+   "label": "Bybit evidence, policy without R2 + new R9",
+   "ms": 5217,
+   "verdict": "FLAG",
+   "src": "network",
+   "p_violation": 0.914,
+   "status": "unsure",
+   "model_ms": 1106.7295350003405,
+   "attempts": 1,
+   "sha": "eed1c2bd247876ac",
+   "default_verdict": "FLAG",
+   "default_p_violation": 0.903
+  },
+  {
+   "feature": "batch",
+   "ms": 238661,
+   "run_ms": 238655,
+   "reused": false,
+   "items": [
+    {
+     "title": "Ronin Bridge Exploiter (Lazarus, OFAC)",
+     "kind": "REAL",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R1",
+      "R8"
+     ],
+     "chain_src": "network",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1101.4985380024882,
+      1108.417155002826
+     ],
+     "newest_tx_block": 26150338,
+     "newest_tx_ts": 1791494555,
+     "error": null
+    },
+    {
+     "title": "Harmony Bridge Exploiter (Lazarus)",
+     "kind": "REAL",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R3",
+      "R8"
+     ],
+     "chain_src": "network",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1096.6017590035335,
+      1098.410252998292
+     ],
+     "newest_tx_block": 23338452,
+     "newest_tx_ts": 1757577191,
+     "error": null
+    },
+    {
+     "title": "Bybit Exploiter (Lazarus, Feb 2025)",
+     "kind": "REAL",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R3",
+      "R4",
+      "R8"
+     ],
+     "chain_src": "network",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1107.3176310019335,
+      1112.3313420030172
+     ],
+     "newest_tx_block": 25292917,
+     "newest_tx_ts": 1781165255,
+     "error": null
+    },
+    {
+     "title": "Binance 14 hot wallet (look-alike)",
+     "kind": "REAL",
+     "verdict": "CLEAR",
+     "expected": "supported",
+     "rules": [],
+     "chain_src": "network",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1093.0469160011853,
+      1095.15845200076
+     ],
+     "newest_tx_block": 26260198,
+     "newest_tx_ts": 1792817147,
+     "error": null
+    },
+    {
+     "title": "Coinbase 10 exchange wallet (look-alike)",
+     "kind": "REAL",
+     "verdict": "CLEAR",
+     "expected": "supported",
+     "rules": [],
+     "chain_src": "network",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1088.278850002098,
+      1091.8983169976855
+     ],
+     "newest_tx_block": 26260200,
+     "newest_tx_ts": 1792817171,
+     "error": null
+    },
+    {
+     "title": "Ordinary sweeper wallet (random, deposit forwarding)",
+     "kind": "REAL",
+     "verdict": "REVIEW",
+     "expected": "supported",
+     "rules": [],
+     "chain_src": "network",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1085.3383319990826,
+      1085.2231489989208
+     ],
+     "newest_tx_block": 26260185,
+     "newest_tx_ts": 1792816991,
+     "error": null
+    },
+    {
+     "title": "OFAC-listed BTC address",
+     "kind": "REAL",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R1"
+     ],
+     "chain_src": "network",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1090.514991999953,
+      1089.7633929998847
+     ],
+     "newest_tx_block": 881169,
+     "newest_tx_ts": 1738049227,
+     "error": null
+    },
+    {
+     "title": "OFAC-listed BTC address #2",
+     "kind": "REAL",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R1"
+     ],
+     "chain_src": "network",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1089.5004760022857,
+      1092.0601120014908
+     ],
+     "newest_tx_block": 0,
+     "newest_tx_ts": 1714118536,
+     "error": null
+    },
+    {
+     "title": "Peel chain",
+     "kind": "SYNTHETIC",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R3",
+      "R5"
+     ],
+     "chain_src": "synthetic",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1096.2568239992834,
+      1100.3307240025606
+     ],
+     "newest_tx_block": null,
+     "newest_tx_ts": null,
+     "error": null
+    },
+    {
+     "title": "Scatter-gather",
+     "kind": "SYNTHETIC",
+     "verdict": "REVIEW",
+     "expected": "violation",
+     "rules": [
+      "R3",
+      "R4"
+     ],
+     "chain_src": "synthetic",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1101.7299049999565,
+      1106.375390998437
+     ],
+     "newest_tx_block": null,
+     "newest_tx_ts": null,
+     "error": null
+    },
+    {
+     "title": "Cycle / round-trip",
+     "kind": "SYNTHETIC",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R3",
+      "R7"
+     ],
+     "chain_src": "synthetic",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1087.7467999962391,
+      1092.5628199984203
+     ],
+     "newest_tx_block": null,
+     "newest_tx_ts": null,
+     "error": null
+    },
+    {
+     "title": "Chain-hop via bridge",
+     "kind": "SYNTHETIC",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R3",
+      "R6",
+      "R8"
+     ],
+     "chain_src": "synthetic",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1084.1624029999366,
+      1091.0266779974336
+     ],
+     "newest_tx_block": null,
+     "newest_tx_ts": null,
+     "error": null
+    },
+    {
+     "title": "Mixer layering (Tornado via hops)",
+     "kind": "SYNTHETIC",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R2",
+      "R3",
+      "R8"
+     ],
+     "chain_src": "synthetic",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1096.7612650056253,
+      1097.6539309995132
+     ],
+     "newest_tx_block": null,
+     "newest_tx_ts": null,
+     "error": null
+    },
+    {
+     "title": "DEX swap layering",
+     "kind": "SYNTHETIC",
+     "verdict": "FLAG",
+     "expected": "violation",
+     "rules": [
+      "R3",
+      "R6"
+     ],
+     "chain_src": "synthetic",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1083.1149059958989,
+      1085.1679319966934
+     ],
+     "newest_tx_block": null,
+     "newest_tx_ts": null,
+     "error": null
+    },
+    {
+     "title": "Payroll look-alike (legit)",
+     "kind": "SYNTHETIC",
+     "verdict": "CLEAR",
+     "expected": "supported",
+     "rules": [],
+     "chain_src": "synthetic",
+     "sapling_src": [
+      "network",
+      "network"
+     ],
+     "sapling_ms": [
+      1090.2765970022301,
+      1089.2782709997846
+     ],
+     "newest_tx_block": null,
+     "newest_tx_ts": null,
+     "error": null
+    }
+   ]
+  }
+ ],
+ "fresh_pick": {
+  "block": 26260191,
+  "address": "0x4aeaed743da352a30b175d93c4a85563ebcfd0d3"
+ },
+ "ofac_pick": "0xf3701f445b6bdafedbca97d1e477357839e4120d",
+ "finished": "2026-10-24 05:49:22 BST"
+}

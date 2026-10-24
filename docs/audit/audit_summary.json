@@ -1,0 +1,109 @@
+{
+ "window": [
+  "2026-10-24T05:40:17+0100",
+  "2026-10-24T06:19:14+0100"
+ ],
+ "total": 3294,
+ "by_host_src": {
+  "ethereum-rpc.publicnode.com [network]": 1511,
+  "eth.blockscout.com [network]": 764,
+  "6adbee0669a00298cd4774c9.endpoints.huggingface.cloud [network]": 543,
+  "mempool.space [network]": 261,
+  "api.routescan.io [network]": 180,
+  "(disk cache) [cache]": 35
+ },
+ "by_feature": {
+  "scanner": {
+   "chain/labels:network": 1382
+  },
+  "investigate": {
+   "cache:cache": 22,
+   "sapling:network": 94,
+   "chain/labels:network": 156
+  },
+  "scanner-internal": {
+   "chain/labels:network": 210
+  },
+  "(worker thread)": {
+   "chain/labels:network": 358
+  },
+  "watchlist-poller": {
+   "chain/labels:network": 280,
+   "sapling:network": 112
+  },
+  "scanner-sapling": {
+   "sapling:network": 18
+  },
+  "policy-editor": {
+   "sapling:network": 11
+  },
+  "batch": {
+   "cache:cache": 13,
+   "sapling:network": 270,
+   "chain/labels:network": 330
+  },
+  "synthetic": {
+   "sapling:network": 38
+  }
+ },
+ "sapling": {
+  "network_calls": 543,
+  "http_status": {
+   "200": 543
+  },
+  "distinct_bodies": 131,
+  "wall_ms": {
+   "n": 543,
+   "min": 1113,
+   "median": 1333,
+   "max": 9698
+  },
+  "model_ms": {
+   "n": 543,
+   "min": 1078,
+   "median": 1093,
+   "max": 1116
+  },
+  "raw_label": {
+   "violation": 386,
+   "insufficient_information": 122,
+   "supported": 35
+  }
+ },
+ "latency_ms_by_host": {
+  "6adbee0669a00298cd4774c9.endpoints.huggingface.cloud": {
+   "n": 543,
+   "min": 1113,
+   "median": 1333,
+   "max": 9698
+  },
+  "eth.blockscout.com": {
+   "n": 764,
+   "min": 125,
+   "median": 352,
+   "max": 8055
+  },
+  "mempool.space": {
+   "n": 261,
+   "min": 32,
+   "median": 69,
+   "max": 644
+  },
+  "ethereum-rpc.publicnode.com": {
+   "n": 1511,
+   "min": 35,
+   "median": 88,
+   "max": 323
+  },
+  "api.routescan.io": {
+   "n": 180,
+   "min": 42,
+   "median": 208,
+   "max": 1146
+  }
+ },
+ "cache_hits": {
+  "eth:cache": 32,
+  "btc:cache": 3
+ }
+}

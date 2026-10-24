@@ -489,3 +489,14 @@ details.rd p{margin:6px 0 8px;color:var(--fg2);line-height:1.5}
 .sccard details.rd{flex:1 1 100%;order:3}
 .sccard details.rd pre{white-space:pre-wrap;max-height:200px;overflow:auto}
 @media (max-width:1100px){.scgrid{grid-template-columns:1fr}.stages{grid-template-columns:repeat(2,1fr)}}
+
+/* provenance: LIVE / CACHED / REPLAY */
+.tag.live{color:var(--clr);border:1px solid #11744a55;background:var(--clr-d)}
+.tag.live::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--clr)}
+.tag.cache{color:var(--rev);border:1px solid #965a0066;background:var(--rev-d)}
+.tag.rep{color:var(--rev);border:1px dashed #965a0099}
+.prov{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);display:grid;gap:6px;font:400 12px/1.45 var(--sans);color:var(--mut)}
+.prov>div{display:grid;grid-template-columns:auto 78px 1fr;gap:8px;align-items:baseline}
+.prov .k{color:var(--fg);font-weight:600}
+.bcard .top .tag+.tag{margin-left:4px}
+.sapstate.done.old{color:var(--rev)}

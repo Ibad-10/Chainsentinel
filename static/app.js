@@ -66,7 +66,7 @@ const gl = (k, t) => `<span class="gl" tabindex="0" data-g="${k}">${t}</span>`;
 const ruleName = (id, tech) => esc(PLAIN[id] || tech) + (RTERM[id] ? ` ${gl(RTERM[id], '?')}` : '');
 const VPLAIN = {FLAG: 'Very likely breaks the AML policy. Escalate this wallet.', REVIEW: 'Sapling could not decide either way. A person should look at this wallet.', CLEAR: 'Looks legitimate under the policy. No action needed.'};
 const topLbl = p => Object.keys(p).reduce((a, b) => p[a] >= p[b] ? a : b);
-const latTxt = S => { const m = S.timing_ms && S.timing_ms.model; return m ? `${fmtN(m, 0)} ms model time${S.from_cache ? ' · replayed from cache' : ''}` : (S.wall_ms ? `${fmtN(S.wall_ms, 0)} ms` : 'n/a'); };
+const latTxt = S => { const m = S.timing_ms && S.timing_ms.model; const how = S.src === 'cache-fallback' ? ' · cached answer (Sapling unreachable)' : S.from_cache ? ' · replayed from cache' : ' · live call'; return m ? `${fmtN(m, 0)} ms model time${how}` : (S.wall_ms ? `${fmtN(S.wall_ms, 0)} ms` : 'n/a'); };
 const usageHTML = u => u ? `<span class="use" title="Estimated tokens for policy + evidence + claim. Sapling rejects requests over ${fmtN(u.limit_tokens, 0)} tokens instead of truncating them."><span class="ut"><i style="width:${Math.max(1.5, u.est_tokens / u.limit_tokens * 100).toFixed(1)}%"></i></span><span class="num">≈${fmtN(u.est_tokens, 0)} / ${fmtN(u.limit_tokens, 0)} tokens</span></span>` : '';
 const short = a => a ? (a.length > 16 ? a.slice(0, 6) + '…' + a.slice(-4) : a) : '?';
 const fmtT = ts => ts ? new Date(ts * 1000).toISOString().replace('T', ' ').slice(0, 16) : '';
@@ -75,6 +75,25 @@ const pct = v => Math.round((v || 0) * 100) + '%';
 const p2 = v => (v || 0).toFixed(2);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 async function api(path, opt) { const r = await fetch(path, opt); let j = {}; try { j = await r.json(); } catch (e) {} if (!r.ok) throw new Error(j.detail || r.statusText); return j; }
+// LIVE / CACHED / REPLAY provenance, straight from the server's record of where each answer came from.
+const agoTxt = s => s == null ? '' : s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
+const SRCTAG = {network: ['live', 'Live'], cache: ['cache', 'Cached'], 'cache-fallback': ['cache', 'Cache fallback'], replay: ['rep', 'Replay'], synthetic: ['syn', 'Synthetic']};
+const srcTag = (src, extra = '') => { const [c, t] = SRCTAG[src] || ['cache', src || '?']; return `<span class="tag ${c}" title="${esc(extra)}">${t}</span>`; };
+function provLine(pv) {
+  if (!pv) return '';
+  const chainTxt = pv.chain_src === 'network' ? `fetched just now${pv.chain_via && pv.chain_via.length ? ' from ' + esc(pv.chain_via.join(' + ')) : ''}`
+    : pv.chain_src === 'cache' ? `from the disk cache, ${agoTxt(pv.chain_age_s)} old (refetched after ${'5 min'})`
+    : pv.chain_src === 'cache-fallback' ? `<b class="c-REVIEW">live fetch failed</b>, showing a copy from ${agoTxt(pv.chain_age_s)} ago`
+    : pv.chain_src === 'replay' ? 'offline replay of a recorded fetch' : 'generated, not chain data';
+  const fresh = pv.newest_tx_ts ? ` · newest tx ${pv.newest_tx_block ? '#' + fmtN(pv.newest_tx_block, 0) + ' · ' : ''}${esc(fmtT(pv.newest_tx_ts))} UTC${pv.chain_head ? ` · chain head #${fmtN(pv.chain_head, 0)}` : ''}` : '';
+  const ss = pv.sapling_src || [], live = ss.filter(s => s === 'network').length;
+  const ms = (pv.sapling_ms || []).filter(Boolean).map(m => fmtN(m, 0)).join(' / ');
+  const sapTxt = live === ss.length ? `${live} live call${live === 1 ? '' : 's'}${ms ? ' · ' + ms + ' ms model time' : ''}`
+    : ss.includes('cache-fallback') ? `<b class="c-REVIEW">Sapling unreachable</b>, showing its earlier answer to this exact evidence${pv.sapling_age_s && pv.sapling_age_s[1] != null ? ` (${agoTxt(pv.sapling_age_s[1])} old)` : ''}`
+    : ss.includes('replay') ? 'replayed answers recorded from earlier live calls' : ss.join(', ');
+  return `<div class="prov"><div>${srcTag(pv.chain_src)}<span class="k">Chain data</span><span>${chainTxt}${fresh}</span></div>
+    <div>${srcTag(live === ss.length ? 'network' : (ss.find(s => s !== 'network') || 'cache'))}<span class="k">Sapling</span><span>${sapTxt}</span></div></div>`;
+}
 const kindTag = (synthetic, chain) => synthetic ? '<span class="tag syn">Synthetic</span>' : `<span class="tag real">Real ${esc((chain || '').toUpperCase())}</span>`;
 const vpill = v => `<span class="vpill ${v}">${v}</span>`;
 function miniBar(p) { return `<div class="mini">${['violation', 'insufficient_information', 'inconsistent_context', 'supported'].map(k => `<div class="f-${k}" style="width:${p[k] * 100}%"></div>`).join('')}</div>`; }
@@ -87,12 +106,12 @@ function showTab(t) {
   $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
   $$('.view').forEach(s => s.classList.toggle('active', s.id === 'v-' + t));
   if (t === 'overview') loadOverview();
-  if (t === 'batch' && !$('#col-FLAG').children.length) { if (BATCH) renderBatch(BATCH); else runBatch(); }
+  if (t === 'batch' && !$('#col-FLAG').children.length) { if (BATCH) renderBatch(BATCH); else runBatch(false); }
   if (t === 'lab' && !$('#labgrid').children.length) loadLab();
   if (t === 'watch') loadWatch();
   if (t === 'how' && !$('#howbody').children.length) loadHow();
   if (t === 'scan') scanStart(); else scanStop();
-  if (t === 'investigate' && G) requestAnimationFrame(() => G.cy.resize());
+  if (t === 'investigate' && G) requestAnimationFrame(() => G && G.cy.resize());
 }
 $$('#nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 document.addEventListener('click', e => { const g = e.target.closest('[data-goto]'); if (g) showTab(g.dataset.goto); });
@@ -290,6 +309,7 @@ function selectStep(i) {
   note(stepNote(i, r), STEPS[i].i);
   const flash = el => { if (!el) return; el.scrollIntoView({behavior: reduced() ? 'auto' : 'smooth', block: 'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1400); };
   $$('.rule').forEach(x => x.classList.remove('on'));
+  if (!G) return;
   if (i === 0) { G.highlight([]); $('#timeline').scrollTop = 0; flash($('#tl')); flash($('#c-ent')); }
   if (i === 1) { G.highlight([]); G.fit(); const s = G.cy.nodes('[cat="self"]'); s.flashClass && s.flashClass('hl', 1200); }
   if (i === 2) { G.highlight(r.rules.flatMap(x => x.edges_in_graph), r.rules.flatMap(x => x.nodes), true, false); flash($('#c-rules')); }
@@ -320,7 +340,7 @@ function panelHTML(r) {
   const topF = topLbl(pp), topA = topLbl(pf);
   return `
   <div class="card ent rise" id="c-ent"><h4>${kindTag(r.synthetic, r.chain)}<span class="r">${r.meta && r.meta.title ? esc(r.meta.title) : 'Wallet'}</span></h4>
-    <div class="addr">${esc(r.address)}</div><div class="lbl">${lab}</div>
+    <div class="addr">${esc(r.address)}</div><div class="lbl">${lab}</div>${provLine(r.provenance)}
     <div class="io"><div><span>Received · ${fmtN(st.n_in, 0)} tx</span><b>${fmtN(st.tin)} ${r.graph.unit}</b></div><div><span>Sent · ${fmtN(st.n_out, 0)} tx</span><b>${fmtN(st.tout)} ${r.graph.unit}</b></div></div></div>
   <div class="card sap rise pending" id="c-verdict">
     <div class="saphead"><h4><span>${gl('sapling', 'Sapling')} verdict</span></h4><span class="sapstate" id="sapstate"><i></i><span>waiting for evidence</span></span></div>
@@ -365,7 +385,7 @@ async function sapVerifying(S, live) {
   const m = (S.timing_ms && S.timing_ms.model) || S.wall_ms || 800, dur = reduced() ? 0 : Math.min(m, 1300), t0 = performance.now();
   sapState('busy', 'Sapling is verifying… 0 ms');
   await new Promise(res => { const tick = () => { if (!live()) return res(); const k = Math.min(1, (performance.now() - t0) / Math.max(1, dur)); sapState('busy', `Sapling is verifying… ${fmtN(m * k, 0)} ms`); if (k < 1) requestAnimationFrame(tick); else res(); }; tick(); });
-  sapState('done', `${icon('check')}Verified in ${fmtN(m, 0)} ms`);
+  sapState(S.src && S.src !== 'network' ? 'done old' : 'done', S.src === 'cache-fallback' ? `${icon('check')}Earlier answer · Sapling unreachable now` : S.src === 'replay' ? `${icon('check')}Replayed answer (${fmtN(m, 0)} ms when recorded)` : `${icon('check')}Verified live in ${fmtN(m, 0)} ms`);
 }
 function wirePanel(r) {
   $$('#panel [data-open]').forEach(b => b.onclick = () => { const d = $(`#c-req details[data-k="${b.dataset.open}"]`); if (d) { d.open = true; d.scrollIntoView({behavior: reduced() ? 'auto' : 'smooth', block: 'center'}); } });
@@ -375,7 +395,7 @@ function wirePanel(r) {
 function openPolicy(r) {
   const dlg = $('#poldlg'), req = r.sapling_full.request;
   $('#poltext').value = req.policy; $('#polres').innerHTML = `<div class="muted small">Current verdict ${vpill(r.verdict)} with the default policy. Edit a rule (for example delete R2) and press Re-run to see Sapling judge the same evidence against your wording.</div>`;
-  const upd = () => { const t = Math.round(($('#poltext').value.length + req.evidence.length + req.claim.length) / 3.2); $('#poluse').innerHTML = `≈${fmtN(t, 0)} / 16,384 tokens` + (t > 15564 ? ' · <b class="c-FLAG">too long, Sapling would reject it</b>' : ''); };
+  const upd = () => { const t = Math.round(($('#poltext').value.length + req.evidence.length + req.claim.length) / 2.2); $('#poluse').innerHTML = `≈${fmtN(t, 0)} / 16,384 tokens` + (t > 15564 ? ' · <b class="c-FLAG">too long, Sapling would reject it</b>' : ''); };
   $('#poltext').oninput = upd; upd();
   $('#polreset').onclick = () => { $('#poltext').value = req.policy; upd(); };
   $('#polrun').onclick = async () => {
@@ -424,7 +444,7 @@ async function investigate(addr, synthetic, o = {}) {
   catch (e) {
     if (run !== RUN) return;
     resetSteps(); $('#gwrap').classList.remove('loading'); $('#gempty h3').textContent = 'Could not investigate this input'; $('#gempty p').textContent = e.message;
-    $('#panel').innerHTML = ''; showErr($('#ierr'), e.message); note('Nothing was sent anywhere. Fix the input and try again.', 'info'); return;
+    $('#panel').innerHTML = ''; showErr($('#ierr'), e.message); note(/sapling/i.test(e.message) ? 'The chain data was fetched, but Sapling could not be reached, so there is no verdict: ChainSentinel never makes the call without Sapling. Try again in a minute (a sleeping endpoint can take a minute to wake).' : 'Nothing was sent to Sapling. Fix the input and try again.', 'info'); return;
   }
   if (run !== RUN) return;
   history.replaceState(null, '', synthetic ? `?s=${synthetic}` : `?a=${encodeURIComponent(addr)}`);
@@ -510,19 +530,20 @@ $('#go').onclick = () => { const a = $('#addr').value.trim(); if (!a) { showErr(
 $('#addr').onkeydown = e => { if (e.key === 'Enter') $('#go').click(); };
 
 // ---------- batch ----------
-async function getBatch() { if (!BATCH) { const t0 = performance.now(); BATCH = await api('/api/batch'); BATCH.secs = (performance.now() - t0) / 1000; } return BATCH; }
+async function getBatch(refresh) { if (!BATCH) { const t0 = performance.now(); BATCH = await api('/api/batch' + (refresh ? '?refresh=1' : '')); BATCH.secs = (performance.now() - t0) / 1000; } return BATCH; }
 const okExp = it => (it.expected === 'violation' && it.verdict === 'FLAG') || (it.expected === 'supported' && it.verdict === 'CLEAR');
-async function runBatch() {
+async function runBatch(refresh = true) {
   const btn = $('#runbatch'); btn.disabled = true; $('#batchinfo').textContent = 'Running real and synthetic cases through the rules and Sapling…';
   ['FLAG', 'REVIEW', 'CLEAR'].forEach(k => { $('#col-' + k).innerHTML = '<div class="skel" style="height:120px;margin-bottom:10px"></div><div class="skel" style="height:120px"></div>'; $('#n-' + k).textContent = ''; });
-  try { BATCH = null; renderBatch(await getBatch()); } catch (e) { $('#batchinfo').textContent = 'Batch failed: ' + e.message; }
+  try { BATCH = null; renderBatch(await getBatch(refresh)); } catch (e) { $('#batchinfo').textContent = 'Batch failed: ' + e.message; }
   btn.disabled = false;
 }
 function renderBatch(b) {
   ['FLAG', 'REVIEW', 'CLEAR'].forEach(k => $('#col-' + k).innerHTML = '');
   b.items.forEach((it, i) => {
     const d = document.createElement('div'); d.className = 'bcard rise';
-    d.innerHTML = `<div class="top">${kindTag(it.kind === 'SYNTHETIC', it.chain)}<span class="ok ${okExp(it) ? 'y' : ''}">${okExp(it) ? icon('check') + 'as expected' : 'expected ' + esc(it.expected)}</span></div>
+    const pv = it.prov || {}, sl = (pv.sapling_src || []).every(s => s === 'network');
+    d.innerHTML = `<div class="top">${kindTag(it.kind === 'SYNTHETIC', it.chain)}${it.kind === 'REAL' ? srcTag(pv.chain_src, 'chain data') : ''}${pv.sapling_src ? srcTag(sl ? 'network' : (pv.sapling_src.find(s => s !== 'network')), 'Sapling') : ''}<span class="ok ${okExp(it) ? 'y' : ''}">${okExp(it) ? icon('check') + 'as expected' : 'expected ' + esc(it.expected)}</span></div>
       <div class="nm">${esc(it.title)}</div><div class="ad">${esc(it.kind === 'SYNTHETIC' ? 'synthetic · ' + short(it.address) : short(it.address))}</div>
       <div class="rl">${(it.rules || []).map(x => `<span class="rc" title="${esc(RULES[x] || '')}">${x}</span>`).join('') || '<span class="muted small">no rules fired</span>'}</div>
       ${it.p ? miniBar(it.p) + `<div class="pp"><span>P(violation) ${pct(it.p.violation)}</span><span>P(supported) ${pct(it.p.supported)}</span><span>facts only: ${it.verdict_facts}</span></div>` : `<div class="c-FLAG small">${esc(it.error)}</div>`}`;
@@ -532,9 +553,10 @@ function renderBatch(b) {
   const n = k => b.items.filter(i => i.verdict === k).length;
   ['FLAG', 'REVIEW', 'CLEAR'].forEach(k => $('#n-' + k).textContent = n(k));
   const real = b.items.filter(i => i.kind === 'REAL').length;
-  $('#batchinfo').innerHTML = `<span>${b.items.length} wallets · ${real} real, ${b.items.length - real} synthetic · ${b.secs ? (b.secs < 0.1 ? 'under 0.1 s (cached)' : b.secs.toFixed(1) + ' s') : ''}</span>`;
+  const nlive = b.items.reduce((s, i) => s + ((i.prov && i.prov.sapling_src) || []).filter(x => x === 'network').length, 0);
+  $('#batchinfo').innerHTML = `<span>${b.items.length} wallets · ${real} real, ${b.items.length - real} synthetic · ${nlive} live Sapling calls · ${b.reused ? `run at ${esc(fmtT(b.ran_at))} UTC, reused (press Run for a fresh live run)` : `ran live in ${((b.run_ms || 0) / 1000).toFixed(1)} s`}</span>`;
 }
-$('#runbatch').onclick = runBatch;
+$('#runbatch').onclick = () => runBatch(true);
 
 // ---------- overview ----------
 async function loadOverview() {
@@ -696,7 +718,7 @@ async function scanPoll() { try { SC = await api('/api/scanner'); renderScan(SC)
 const scanTally = (t) => `${fmtN(t.escalated || 0, 0)} judged: <b class="c-FLAG">${t.FLAG || 0} FLAG</b>, <b class="c-REVIEW">${t.REVIEW || 0} REVIEW</b>, <b class="c-CLEAR">${t.CLEAR || 0} CLEAR</b>`;
 function scanSource(s) {
   if (s.mode === 'replay') return s.recording ? `<span class="tag rec">Replay</span><span>Offline: replayed recording of blocks <b class="num">#${s.recording.first}–#${s.recording.last}</b> (real Ethereum mainnet, recorded ${esc(s.recording.recorded || '')}). Sapling answers come from the cache.</span>` : `<span class="tag rec">Replay</span><span>${esc(s.error || 'Loading the recorded session…')}</span>`;
-  return `<span class="livedot${s.paused ? ' off' : ''}"></span><span><b>${s.paused ? 'Paused' : 'Live'}</b> · Ethereum mainnet${s.head ? ` · chain head <b class="num">#${s.head}</b>` : ''}${s.source ? ` · blocks from ${esc(s.source)}` : ''} · internal transfers from Blockscout once indexed${s.pending_internal ? ` (${s.pending_internal} blocks waiting)` : ''}</span>`;
+  return `<span class="livedot${s.paused ? ' off' : ''}"></span><span><b>${s.paused ? 'Paused' : 'Live'}</b> · Ethereum mainnet${s.head ? ` · chain head <b class="num">#${s.head}</b>` : ''}${s.source ? ` · blocks from ${esc(s.source)}` : ''} · internal transfers from ${esc(s.internal_src || 'Routescan / Blockscout')}${s.pending_internal ? ` (${s.pending_internal} blocks waiting)` : ''}</span>`;
 }
 function renderScan(s) {
   $('#scdot').hidden = s.paused; const pb = $('#scpause'); pb.innerHTML = icon(s.paused ? 'play' : 'pause') + `<span>${s.paused ? 'Resume' : 'Pause'}</span>`;

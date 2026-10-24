@@ -54,6 +54,23 @@ def fetch_block(n):
     ts = int(dt.datetime.fromisoformat(items[0]["timestamp"].replace("Z", "+00:00")).timestamp()) if items else int(time.time())
     return dict(number=n, ts=ts, txs=txs, source="Blockscout v2")
 
+RS = "https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api"
+def fetch_internal_rs(n):
+    """Value-carrying internal transfers of block n from Routescan (free, no key, indexed within a block or two of the head)."""
+    r = requests.get(RS, params=dict(module="account", action="txlistinternal", startblock=n, endblock=n, page=1, offset=1000, sort="asc"), timeout=20)
+    if r.status_code != 200: return None
+    d = r.json(); res = d.get("result")
+    if not isinstance(res, list): return [] if str(d.get("message", "")).startswith("No transactions") else None
+    return [[t["hash"], t["from"].lower(), t["to"].lower(), int(t["value"]) / 1e18] for t in res
+            if int(t.get("value") or 0) and t.get("type") == "call" and t.get("isError", "0") == "0" and t.get("to")]
+def fetch_internal_any(n):
+    """Routescan first, Blockscout v2 as fallback. Returns (transfers or None, source name)."""
+    for name, fn in (("Routescan", fetch_internal_rs), ("Blockscout v2", lambda n: fetch_internal(n, pages=2))):
+        try:
+            it = fn(n)
+            if it: return it, name
+        except Exception: pass
+    return None, None
 def fetch_internal(n, pages=3):
     """Value-carrying internal transfers of block n from Blockscout v2, or None if not indexed yet."""
     out, params = [], {}
@@ -129,7 +146,8 @@ def stage1(blk, window, fresh, internal=False, simulated=False):
             if v < PASS_MIN or (lab(f) and lab(f)["cat"] != "unknown"): continue
             rin, _ = window.activity(f)
             got = sum(x[2] for x in rin)
-            if got and v >= 0.8 * got:
+            # pass-through means roughly what came in goes out; sending far more than arrived is just a funded wallet
+            if got and 0.8 * got <= v <= 1.25 * got:
                 first = min(x[0] for x in rin)
                 hits[f].append(("R3", f"It received {got:,.2f} ETH in the last {n - first} blocks (from {B(first)}) and in {B(n)} forwarded {v:,.2f} ETH ({v / got:.0%} of it) to {(lab(t) or {}).get('name') or t[:10] + '…'}, about {max(1, round((n - first) * 12 / 60))} min later (transaction {h[:12]}…)", h, t))
     return hits, transfers
@@ -195,6 +213,7 @@ class Scanner:
             self.started = True; threading.Thread(target=self.loop, daemon=True).start()
             if self.mode == "live": threading.Thread(target=self.internal_loop, daemon=True).start()
     def internal_loop(self):
+        E.audit.CTX.feature = "scanner-internal"
         """Blockscout indexes internal transfers a little behind the head and is slow, so this runs on its own thread."""
         while True:
             try:
@@ -203,6 +222,7 @@ class Scanner:
                 if len(self.pending_internal) == before: time.sleep(10)
             except Exception: time.sleep(5)
     def loop(self):
+        E.audit.CTX.feature = "scanner"
         while True:
             try:
                 if self.paused or self.idle: time.sleep(1); continue
@@ -227,24 +247,22 @@ class Scanner:
         while len(self.pending_internal) > 120: self.pending_internal.popleft()
     def drain_internal(self):
         if not self.pending_internal: return
-        if time.time() - self.bs_head_at > 20:
-            try: self.bs_head = bs_head(); self.bs_head_at = time.time()
-            except Exception: return
         n, seen = self.pending_internal[0]
-        if n > self.bs_head: return
-        try: it = fetch_internal(n, pages=2)
-        except Exception: it = None
-        # Blockscout indexes internal transfers roughly 20-25 blocks (~5 min) behind the head and answers [] until then.
-        # Blocks are queued in order, so wait on the oldest; give up on it after 20 minutes.
-        if not it and time.time() - seen < 1200: return
+        if time.time() - seen < 20: return  # give the indexers a block or two
+        it, via = fetch_internal_any(n)
+        # Nothing yet: indexers may still be catching up (Blockscout runs ~20-30 blocks behind). Retry the oldest block for up to 10 minutes.
+        if not it and time.time() - seen < 600: return
         self.pending_internal.popleft()
-        if it is None: return
+        if not it:
+            with self.lock: self.tot["internal_unavailable"] += 1
+            return
+        self.internal_src = via
         b = next((x for x in self.blocks if x["number"] == n), None)
         blk = dict(number=n, ts=b["ts"] if b else int(time.time()), txs=it)
         with self.lock:
             hits, _ = stage1(blk, self.window, {}, internal=True)
             self.tot["internal"] += len(it)
-            if b: b["internal"] = len(it); b["internal_suspicious"] = len(hits)
+            if b: b["internal"] = len(it); b["internal_suspicious"] = len(hits); b["internal_src"] = via
             self.escalate(hits, blk, b)
     def step_replay(self):
         if self.recording is None:
@@ -294,6 +312,7 @@ class Scanner:
                 if b: b["escalated"] += 1
             self.pool.submit(self.verify, card, b, tally)
     def verify(self, card, b, tally):
+        E.audit.CTX.feature = "scanner-sapling"
         try:
             with self.rl:  # global rate limit across workers
                 wait = self.last_call + 1 / SAP_RATE - time.time()
@@ -302,7 +321,7 @@ class Scanner:
             card["status"] = "verifying"; card["t0"] = time.time()
             r = E.sapling(card["evidence"])
             v = E.decide(r["probabilities"])
-            card.update(status="done", verdict=v, sapling={k: r.get(k) for k in ("status", "raw_label", "prediction_set", "probabilities", "timing_ms", "usage", "from_cache", "wall_ms")})
+            card.update(status="done", verdict=v, sapling={k: r.get(k) for k in ("status", "raw_label", "prediction_set", "probabilities", "timing_ms", "usage", "from_cache", "wall_ms", "src", "attempts", "request_sha256", "fallback_reason")})
             with self.lock:
                 tally["escalated"] += 1; tally[v] += 1
                 if b: b["verdicts"][v] += 1
@@ -341,7 +360,7 @@ class Scanner:
             rec = None
             if self.mode == "replay" and self.recording: rec = dict(first=self.recording["blocks"][0]["number"], last=self.recording["blocks"][-1]["number"], recorded=self.recording.get("recorded"), n=len(self.recording["blocks"]))
             return dict(mode=self.mode, paused=self.paused, idle=self.idle, head=self.head, source=self.source, error=self.err, recording=rec, totals=dict(self.tot), simulated=dict(self.sim), blocks=bl, cards=cards,
-                        limits=dict(workers=SAP_WORKERS, rate=SAP_RATE, window=WINDOW, big=BIG, bridge_min=BRIDGE_MIN, pass_min=PASS_MIN), inflight=self.inflight, pending_internal=len(self.pending_internal))
+                        limits=dict(workers=SAP_WORKERS, rate=SAP_RATE, window=WINDOW, big=BIG, bridge_min=BRIDGE_MIN, pass_min=PASS_MIN), inflight=self.inflight, pending_internal=len(self.pending_internal), internal_src=getattr(self, "internal_src", None))
 
 SCANNER = Scanner()
 
