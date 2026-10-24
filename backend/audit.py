@@ -4,14 +4,16 @@ for Sapling the request-body sha256 and the response's timing_ms. Nothing secret
 import os, json, time, hashlib, threading, urllib.parse, requests
 
 ON = os.environ.get("CS_AUDIT") == "1"
-PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "audit.log")
+PATH = "/tmp/chainsentinel-audit.log" if os.environ.get("VERCEL") else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "audit.log")
 _lock = threading.Lock()
 CTX = threading.local()  # .feature: which feature made the call (set by app.py per request)
 
 def write(**rec):
     if not ON: return
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "t": round(time.time(), 3), "feature": getattr(CTX, "feature", None), **rec}
-    with _lock, open(PATH, "a") as f: f.write(json.dumps(rec) + "\n")
+    try:
+        with _lock, open(PATH, "a") as f: f.write(json.dumps(rec) + "\n")
+    except Exception: pass
 
 def cache_hit(kind, key_sha, src, age_s):
     write(host="(disk cache)", kind=kind, key=key_sha[:12], src=src, age_s=None if age_s is None else int(age_s))

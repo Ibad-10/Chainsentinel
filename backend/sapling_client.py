@@ -1,7 +1,10 @@
 import requests, time, json, hashlib, os
 URL = os.environ.get("CS_SAPLING_URL", "https://6adbee0669a00298cd4774c9.endpoints.huggingface.cloud")
-READ_TIMEOUT = float(os.environ.get("CS_SAPLING_TIMEOUT", "90"))  # seconds to wait for one answer
-DEADLINE = float(os.environ.get("CS_SAPLING_DEADLINE", "75"))  # total seconds to keep retrying (covers an HF scale-from-zero cold start)
+_SL = bool(os.environ.get("VERCEL"))  # serverless functions are capped at 60 s, so give up sooner there
+READ_TIMEOUT = float(os.environ.get("CS_SAPLING_TIMEOUT", "25" if _SL else "90"))  # seconds to wait for one answer
+DEADLINE = float(os.environ.get("CS_SAPLING_DEADLINE", "25" if _SL else "75"))  # total seconds to keep retrying (covers an HF scale-from-zero cold start)
+TOKEN = os.environ.get("CS_SAPLING_TOKEN")  # optional: only if the endpoint is ever made private
+HEADERS = {"Content-Type": "application/json", "Accept": "application/json", **({"Authorization": f"Bearer {TOKEN}"} if TOKEN else {})}
 LABELS = ("supported", "violation", "insufficient_information", "inconsistent_context")
 POLICY="""Crypto AML policy (EVM and Bitcoin wallets). A wallet VIOLATES this policy if ANY rule below is met:
 R1 Sanctions: it sends to or receives from an OFAC-sanctioned address, or is itself on the OFAC SDN list.
@@ -39,7 +42,7 @@ def check(evidence, claim=CLAIM, policy=POLICY, deadline=None):
     while True:
         attempt += 1
         try:
-            r = requests.post(URL, data=body, headers={"Content-Type": "application/json", "Accept": "application/json"}, timeout=(10, READ_TIMEOUT))
+            r = requests.post(URL, data=body, headers=HEADERS, timeout=(10, READ_TIMEOUT))
         except requests.Timeout: err, kind = "Sapling did not answer in time (timeout).", "timeout"
         except requests.ConnectionError: err, kind = "Sapling endpoint unreachable (connection failed).", "unreachable"
         else:

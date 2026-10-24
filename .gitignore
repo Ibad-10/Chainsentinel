@@ -3,3 +3,5 @@ __pycache__/
 server.log
 data/watchlist.json
 data/audit.log
+.vercel/
+*.bundle

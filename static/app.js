@@ -562,7 +562,7 @@ $('#runbatch').onclick = () => runBatch(true);
 async function loadOverview() {
   overviewScan(); clearInterval(window.OVS); window.OVS = setInterval(() => $('#v-overview').classList.contains('active') ? overviewScan() : clearInterval(window.OVS), 5000);
   let b; try { b = await getBatch(); } catch (e) { $('#ov-screened').innerHTML = `<div class="empty">Could not load the batch: ${esc(e.message)}</div>`; return; }
-  const w = WL || await api('/api/watchlist').catch(() => ({items: [], alerts: []})); WL = w;
+  const w = WL || wlLoad(); WL = w;
   const seen = new Set(b.items.map(i => (i.address || '').toLowerCase()));
   const extra = w.items.filter(i => !seen.has(i.address.toLowerCase()));
   const all = b.items.map(i => i.verdict).concat(extra.map(i => i.last_verdict).filter(Boolean));
@@ -612,38 +612,78 @@ async function loadLab() {
   }
 }
 
-// ---------- watchlist ----------
+// ---------- watchlist (per browser) ----------
+// Saved in this browser's localStorage only: nothing about your list is stored on the server. Re-checks are on demand
+// and go through the same /api/analyze call as Investigate (rules gather evidence, Sapling decides).
+const WL_KEY = 'cs_watchlist_v1';
+const ETH_RE = /^0x[0-9a-fA-F]{40}$/, BTC_RE = /^(bc1[02-9ac-hj-np-z]{11,71}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$/;
+function detectChain(a) {
+  if (ETH_RE.test(a)) return 'eth';
+  if (BTC_RE.test(a)) return 'btc';
+  const n = a.split(/\s+/).filter(Boolean).length;
+  if ([12, 15, 18, 21, 24].includes(n) || /^(0x)?[0-9a-fA-F]{64}$/.test(a)) throw new Error('That looks like a seed phrase or private key. Never paste those anywhere. ChainSentinel only needs a PUBLIC address.');
+  throw new Error('Not a valid Ethereum (0x…) or Bitcoin address.');
+}
+function wlLoad() { try { const w = JSON.parse(localStorage.getItem(WL_KEY)); if (w && Array.isArray(w.items)) return Object.assign({alerts: []}, w); } catch (e) {} return {items: [], alerts: []}; }
+function wlSave(w) { w.alerts = (w.alerts || []).slice(0, 50); try { localStorage.setItem(WL_KEY, JSON.stringify(w)); } catch (e) {} }
+async function wlCheck(w, it, opts = {}) {
+  const r = await api('/api/analyze?address=' + encodeURIComponent(it.address) + (opts.simulate ? '&simulate=true' : '') + (opts.refresh ? '&refresh=true' : ''));
+  const rules = r.rules.map(x => x.id), now = Math.floor(Date.now() / 1000);
+  if (it.last_verdict) {
+    const added = rules.filter(x => !(it.rules || []).includes(x)), newTx = r.n_tx - (it.n_tx || 0);
+    if (r.verdict !== it.last_verdict || added.length) {
+      const det = r.rules.filter(x => added.includes(x.id)).map(x => `${x.id} ${x.name}: ${x.detail}`).join('; ');
+      w.alerts.unshift({ts: now, address: it.address, chain: it.chain, frm: it.last_verdict, to: r.verdict, new_rules: added, new_tx: newTx, simulated: !!opts.simulate,
+        text: `${newTx} new tx. Verdict ${it.last_verdict} → ${r.verdict}.` + (det ? ` New: ${det}` : '')});
+    }
+  }
+  Object.assign(it, {last_verdict: r.verdict, rules, n_tx: r.n_tx, last_check: now, p: r.sapling_full.probabilities, label: r.label && r.label.name, injected: !!opts.simulate});
+  delete it.error; return r;
+}
 function renderWatch(w) {
   WL = w; $('#wcount').textContent = w.items.length || '';
   $('#wtable').innerHTML = `<tr><th>Address</th><th>Verdict</th><th>Rules</th><th>Last check</th><th></th></tr>` + (w.items.map(it => `<tr>
-    <td><span class="tag real">${esc(it.chain.toUpperCase())}</span> <span class="mono">${esc(short(it.address))}</span>${it.injected ? ' <span class="tag sim">Simulated tx injected</span>' : ''}<div class="muted small" style="margin-top:4px">${esc(it.label || 'No public label')}</div></td>
+    <td><span class="tag real">${esc(it.chain.toUpperCase())}</span> <span class="mono">${esc(short(it.address))}</span>${it.injected ? ' <span class="tag sim">Simulated tx injected</span>' : ''}<div class="muted small" style="margin-top:4px">${esc(it.error || it.label || 'No public label')}</div></td>
     <td>${it.last_verdict ? vpill(it.last_verdict) : '…'}${it.p ? `<div class="muted small num" style="margin-top:4px">P(v) ${pct(it.p.violation)}</div>` : ''}</td>
     <td class="nowrap">${(it.rules || []).map(x => `<span class="rc">${x}</span>`).join('') || '<span class="muted small">none</span>'}</td>
     <td class="muted small num nowrap">${fmtT(it.last_check).slice(5)}</td>
-    <td><div class="acts"><button class="btn sm" data-act="open" data-a="${esc(it.address)}">Open</button>${it.chain === 'eth' ? `<button class="btn sm" data-act="sim" data-a="${esc(it.address)}" title="Demo mode: inject a SYNTHETIC Tornado Cash deposit">Simulate suspicious tx</button>` : ''}${it.injected ? `<button class="btn sm" data-act="reset" data-a="${esc(it.address)}">Reset</button>` : ''}<button class="btn sm ghost" data-act="del" data-a="${esc(it.address)}" title="Stop watching" aria-label="Stop watching">${icon('x')}</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nothing watched yet. Add a public address above.</td></tr>');
+    <td><div class="acts"><button class="btn sm" data-act="open" data-a="${esc(it.address)}">Open</button>${it.chain === 'eth' ? `<button class="btn sm" data-act="sim" data-a="${esc(it.address)}" title="Demo mode: inject a SYNTHETIC Tornado Cash deposit">Simulate suspicious tx</button>` : ''}${it.injected ? `<button class="btn sm" data-act="reset" data-a="${esc(it.address)}">Reset</button>` : ''}<button class="btn sm ghost" data-act="del" data-a="${esc(it.address)}" title="Stop watching" aria-label="Stop watching">${icon('x')}</button></div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nothing watched yet. Add a public address above. Your list is saved in this browser only.</td></tr>');
   renderAlerts($('#alerts'), w.alerts);
 }
 $('#wtable').onclick = async e => {
   const b = e.target.closest('[data-act]'); if (!b) return; const a = b.dataset.a; hideErr($('#werr'));
+  const w = wlLoad(), it = w.items.find(i => i.address.toLowerCase() === a.toLowerCase());
   try {
     if (b.dataset.act === 'open') return investigate(a);
     b.disabled = true;
-    if (b.dataset.act === 'sim') renderWatch(await api('/api/watchlist/simulate/' + encodeURIComponent(a), {method: 'POST'}));
-    if (b.dataset.act === 'reset') renderWatch(await api('/api/watchlist/reset/' + encodeURIComponent(a), {method: 'POST'}));
-    if (b.dataset.act === 'del') renderWatch(await api('/api/watchlist/' + encodeURIComponent(a), {method: 'DELETE'}));
+    if (b.dataset.act === 'del') w.items = w.items.filter(i => i !== it);
+    else if (it && b.dataset.act === 'sim') await wlCheck(w, it, {simulate: true});
+    else if (it && b.dataset.act === 'reset') await wlCheck(w, it);
+    wlSave(w); renderWatch(w);
   } catch (err) { showErr($('#werr'), err.message); b.disabled = false; }
 };
-async function loadWatch() { try { renderWatch(await api('/api/watchlist')); } catch (e) { showErr($('#werr'), e.message); } }
+function loadWatch() { renderWatch(wlLoad()); }
 $('#wadd').onclick = async () => {
   const v = $('#waddr').value.trim(); hideErr($('#werr')); if (!v) return showErr($('#werr'), 'Paste a public Ethereum (0x…) or Bitcoin address.');
-  $('#wadd').disabled = true;
-  try { renderWatch(await api('/api/watchlist', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({address: v})})); $('#waddr').value = ''; }
-  catch (e) { showErr($('#werr'), e.message); if (/seed phrase|private key/i.test(e.message)) $('#waddr').value = ''; }
-  $('#wadd').disabled = false;
+  let chain; try { chain = detectChain(v); } catch (e) { showErr($('#werr'), e.message); if (/seed phrase|private key/i.test(e.message)) $('#waddr').value = ''; return; }
+  const w = wlLoad();
+  if (w.items.some(i => i.address.toLowerCase() === v.toLowerCase())) { $('#waddr').value = ''; return renderWatch(w); }
+  if (w.items.length >= 20) return showErr($('#werr'), 'This demo watchlist holds up to 20 addresses per browser.');
+  const it = {chain, address: v, added: Math.floor(Date.now() / 1000), last_verdict: null};
+  w.items.push(it); wlSave(w); renderWatch(w); $('#waddr').value = ''; $('#wadd').disabled = true;
+  try { await wlCheck(w, it); } catch (e) { it.error = e.message; showErr($('#werr'), e.message); }
+  wlSave(w); renderWatch(w); $('#wadd').disabled = false;
 };
 $('#waddr').onkeydown = e => { if (e.key === 'Enter') $('#wadd').click(); };
-$('#wcheck').onclick = async () => { const b = $('#wcheck'); b.disabled = true; b.querySelector('span:last-child').textContent = 'Checking…'; try { renderWatch(await api('/api/watchlist/check', {method: 'POST'})); } catch (e) { showErr($('#werr'), e.message); } b.disabled = false; b.querySelector('span:last-child').textContent = 'Check now'; };
-setInterval(() => { if ($('#v-watch').classList.contains('active')) loadWatch(); }, 15000);
+$('#wcheck').onclick = async () => {
+  const b = $('#wcheck'); b.disabled = true; b.querySelector('span:last-child').textContent = 'Checking…'; hideErr($('#werr'));
+  const w = wlLoad();
+  for (const it of w.items) {
+    try { await wlCheck(w, it, {refresh: true}); } catch (e) { it.error = e.message; showErr($('#werr'), e.message); if (/Slow down|busy/.test(e.message)) break; }
+    wlSave(w); renderWatch(w);
+  }
+  b.disabled = false; b.querySelector('span:last-child').textContent = 'Check now';
+};
 
 // ---------- how it works ----------
 async function loadHow() {
@@ -714,7 +754,8 @@ const PLAIN_S = Object.assign({}, PLAIN, {S1: 'Large amount sent to a brand-new 
 const RTERM_S = Object.assign({}, RTERM, {R8: null});
 function scanStart() { if (SCT) return; scanPoll(); SCT = setInterval(scanPoll, 2000); }
 function scanStop() { clearInterval(SCT); SCT = null; }
-async function scanPoll() { try { SC = await api('/api/scanner'); renderScan(SC); } catch (e) { $('#scsrc').innerHTML = `<span class="livedot off"></span><span>Scanner unavailable: ${esc(e.message)}</span>`; } }
+let SCBUSY = false;
+async function scanPoll() { if (SCBUSY) return; SCBUSY = true; try { SC = await api('/api/scanner'); renderScan(SC); } catch (e) { $('#scsrc').innerHTML = `<span class="livedot off"></span><span>Scanner unavailable: ${esc(e.message)}</span>`; } finally { SCBUSY = false; } }
 const scanTally = (t) => `${fmtN(t.escalated || 0, 0)} judged: <b class="c-FLAG">${t.FLAG || 0} FLAG</b>, <b class="c-REVIEW">${t.REVIEW || 0} REVIEW</b>, <b class="c-CLEAR">${t.CLEAR || 0} CLEAR</b>`;
 function scanSource(s) {
   if (s.mode === 'replay') return s.recording ? `<span class="tag rec">Replay</span><span>Offline: replayed recording of blocks <b class="num">#${s.recording.first}–#${s.recording.last}</b> (real Ethereum mainnet, recorded ${esc(s.recording.recorded || '')}). Sapling answers come from the cache.</span>` : `<span class="tag rec">Replay</span><span>${esc(s.error || 'Loading the recorded session…')}</span>`;
@@ -789,7 +830,7 @@ function onboarding() {
   $('#chips').innerHTML = SHOW.real.map(c => `<button class="ex" data-a="${esc(c.address)}" title="REAL ${esc(c.chain.toUpperCase())} · ${esc(c.address)}"><span class="d"></span>${esc(c.title.split(' (')[0])}</button>`).join('') +
     SHOW.synthetic.map(c => `<button class="ex s" data-s="${esc(c.case)}" title="SYNTHETIC"><span class="d"></span>${esc(c.title.split(' (')[0])}</button>`).join('');
   $$('#chips .ex').forEach(ch => ch.onclick = () => ch.dataset.a ? investigate(ch.dataset.a) : investigate(null, ch.dataset.s));
-  api('/api/watchlist').then(w => { WL = w; $('#wcount').textContent = w.items.length || ''; }).catch(() => {});
+  { const w = wlLoad(); WL = w; $('#wcount').textContent = w.items.length || ''; }
   const q = new URLSearchParams(location.search);
   const rule = q.get('rule') ? (isNaN(+q.get('rule')) ? q.get('rule') : +q.get('rule')) : undefined;
   if (q.get('a')) investigate(q.get('a'), null, {rule});

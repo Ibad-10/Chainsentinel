@@ -1,0 +1,2 @@
+-r requirements.txt
+playwright>=1.44  # only for screenshots and demo recording (shoot.py, record_*.py)
