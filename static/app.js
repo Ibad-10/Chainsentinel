@@ -38,6 +38,7 @@ const IC = {
   arrowr: '<path d="M5 12h14M14 7l5 5-5 5"/>',
   pulse: '<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>',
   pause: '<path d="M9 6v12M15 6v12"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
 };
 const icon = (n, cls = 'i') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${IC[n] || ''}</svg>`;
 const hydrate = (root = document) => root.querySelectorAll('[data-i]').forEach(el => { el.outerHTML = icon(el.dataset.i); });
@@ -102,23 +103,56 @@ function hideErr(el) { el.classList.remove('show'); }
 let SHOW = null, BATCH = null, WL = null, G = null, CUR = null, RUN = 0;
 
 // ---------- routing ----------
+const TABNAME = {overview: 'Overview', scan: 'Live scanner', investigate: 'Investigate', batch: 'Batch triage', lab: 'Pattern lab', watch: 'Watchlist', how: 'How it works'};
+const narrowMQ = matchMedia('(max-width: 900px)');
+function syncNavInert() {
+  const narrow = narrowMQ.matches, open = document.body.classList.contains('nav-open');
+  const side = $('#sidenav'), main = document.querySelector('main');
+  if (side) { if (narrow && !open) side.setAttribute('inert', ''); else side.removeAttribute('inert'); }
+  if (main) { if (narrow && open) main.setAttribute('inert', ''); else main.removeAttribute('inert'); }
+}
+function setNav(open) {
+  const was = document.body.classList.contains('nav-open');
+  document.body.classList.toggle('nav-open', open);
+  const btn = $('#navopen');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  syncNavInert();
+  if (open) { const c = $('#navclose'); if (c) c.focus(); }
+  else if (was && $('#sidenav') && $('#sidenav').contains(document.activeElement) && btn) btn.focus();
+}
 function showTab(t) {
+  setNav(false);
   $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
   $$('.view').forEach(s => s.classList.toggle('active', s.id === 'v-' + t));
+  const mt = $('#mtab'); if (mt) mt.textContent = TABNAME[t] || '';
   if (t === 'overview') loadOverview();
   if (t === 'batch' && !$('#col-FLAG').children.length) { if (BATCH) renderBatch(BATCH); else runBatch(false); }
   if (t === 'lab' && !$('#labgrid').children.length) loadLab();
   if (t === 'watch') loadWatch();
   if (t === 'how' && !$('#howbody').children.length) loadHow();
   if (t === 'scan') scanStart(); else scanStop();
-  if (t === 'investigate' && G) requestAnimationFrame(() => G && G.cy.resize());
+  if (t === 'investigate' && G) requestAnimationFrame(() => {
+    const w = G.cy.width(), h = G.cy.height();
+    G.cy.resize();
+    if (Math.abs(G.cy.width() - w) > 2 || Math.abs(G.cy.height() - h) > 2) G.fit();
+  });
 }
 $$('#nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 document.addEventListener('click', e => { const g = e.target.closest('[data-goto]'); if (g) showTab(g.dataset.goto); });
+$('#navopen').onclick = () => setNav(true);
+$('#navclose').onclick = () => setNav(false);
+$('#navscrim').onclick = () => setNav(false);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('nav-open')) setNav(false); });
+narrowMQ.addEventListener('change', () => {
+  setNav(false); placePanels(); syncNavInert();
+  if (G && G.cy) requestAnimationFrame(() => { G.cy.resize(); G.fit(); });
+});
 
 // ---------- graph ----------
 function makeGraph(wrap, G0, opts = {}) {
   const cyEl = wrap.querySelector('.cy'), fx = wrap.querySelector('.fx'), tip = opts.tip;
+  const stage = cyEl.parentElement;
+  const fitPad = () => opts.pad != null ? opts.pad : (narrowMQ.matches ? 32 : 50);
   const unit = G0.unit || 'ETH';
   const maxV = Math.max(1e-9, ...G0.edges.map(e => e.native ? e.value : 0));
   const wOf = v => 1 + 7 * Math.sqrt(v / maxV);
@@ -179,7 +213,7 @@ function makeGraph(wrap, G0, opts = {}) {
   const nVis = vis.nodes().length;
   vis.layout(nVis > 34 ? {name: 'concentric', concentric: n => n.data('cat') === 'self' ? 10 : (n.hasClass('key') ? 6 : (n.hasClass('cluster') ? 5 : 1)), levelWidth: () => 1, minNodeSpacing: 22, spacingFactor: 1.05, animate: false}
                        : {name: 'cose', animate: false, randomize: false, nodeRepulsion: 140000, idealEdgeLength: 80, nodeOverlap: 24, gravity: 0.5, numIter: 2500, padding: 30}).run();
-  cy.fit(vis, opts.pad || 50); if (cy.zoom() > (opts.maxFit || 1.5)) { cy.zoom(opts.maxFit || 1.5); cy.center(vis); }
+  cy.fit(vis, fitPad()); if (cy.zoom() > (opts.maxFit || 1.5)) { cy.zoom(opts.maxFit || 1.5); cy.center(vis); }
   const self = cy.nodes('[cat="self"]');
   if (reduced() || opts.instant) { api_.ready = true; }
   else {
@@ -192,7 +226,18 @@ function makeGraph(wrap, G0, opts = {}) {
     setTimeout(() => { vis.edges().animate({style: {opacity: 0.75}}, {duration: 500, complete: () => { vis.edges().removeStyle('opacity'); api_.ready = true; }}); }, nodes.length * step + 300);
   }
   // hover + tooltip
-  const showTip = (ev, html) => { if (!tip) return; const p = ev.renderedPosition; tip.innerHTML = html; tip.style.left = Math.min(p.x + 14, wrap.clientWidth - 310) + 'px'; tip.style.top = (p.y + 14) + 'px'; tip.classList.add('show'); };
+  const showTip = (ev, html) => { if (!tip) return; const p = ev.renderedPosition; tip.innerHTML = html;
+    if (narrowMQ.matches) {
+      const bound = stage.clientWidth, tw = Math.min(300, Math.max(120, bound - 16));
+      tip.style.maxWidth = tw + 'px';
+      tip.style.left = Math.max(8, Math.min(p.x + 14, bound - tw - 8)) + 'px';
+      tip.style.top = Math.max(8, Math.min(p.y + 14, Math.max(8, stage.clientHeight - 48))) + 'px';
+    } else {
+      tip.style.maxWidth = '';
+      tip.style.left = Math.min(p.x + 14, stage.clientWidth - 310) + 'px';
+      tip.style.top = (p.y + 14) + 'px';
+    }
+    tip.classList.add('show'); };
   const hideTip = () => tip && tip.classList.remove('show');
   cy.on('mouseover', 'node', ev => { const n = ev.target; n.addClass('hover'); wrap.style.cursor = 'pointer';
     if (n.hasClass('cluster')) return showTip(ev, `<b>${n.data('members').length} grouped wallets</b><div class="muted small">Unlabelled leaf wallets with a single connection. Click to expand.</div>`);
@@ -218,7 +263,7 @@ function makeGraph(wrap, G0, opts = {}) {
   api_.collapse = () => { clusters.forEach(g => { g.members.forEach(m => { const n = cy.getElementById(m); n.addClass('hid'); n.connectedEdges().addClass('hid'); }); const cn = cy.getElementById(g.id); cn.removeClass('hid'); cn.connectedEdges().removeClass('hid'); }); };
   api_.toggleGroups = () => { api_.expanded = !api_.expanded; if (api_.expanded) clusters.forEach(g => api_.expand(g.id)); else api_.collapse(); setTimeout(() => api_.fit(), reduced() ? 0 : 520); return api_.expanded; };
   api_.fit = (eles) => {
-    const bb = (eles || cy.elements().not('.hid')).boundingBox(), pad = opts.pad || 50, W = cy.width(), H = cy.height();
+    const bb = (eles || cy.elements().not('.hid')).boundingBox(), pad = fitPad(), W = cy.width(), H = cy.height();
     if (!isFinite(bb.w) || !bb.w && !bb.h) return;
     const z = Math.min((W - 2 * pad) / Math.max(bb.w, 1), (H - 2 * pad) / Math.max(bb.h, 1), opts.maxFit || 1.5);
     const pan = {x: W / 2 - z * (bb.x1 + bb.w / 2), y: H / 2 - z * (bb.y1 + bb.h / 2)};
@@ -243,7 +288,7 @@ function makeGraph(wrap, G0, opts = {}) {
   const ctx = fx.getContext('2d'); let raf = 0, alive = true; const seeds = {};
   const frame = now => {
     if (!alive) return; raf = requestAnimationFrame(frame);
-    const w = wrap.clientWidth, h = wrap.clientHeight, dpr = devicePixelRatio || 1;
+    const w = stage.clientWidth, h = stage.clientHeight, dpr = devicePixelRatio || 1;
     if (fx.width !== Math.round(w * dpr) || fx.height !== Math.round(h * dpr)) { fx.width = Math.round(w * dpr); fx.height = Math.round(h * dpr); fx.style.width = w + 'px'; fx.style.height = h + 'px'; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
     if (!api_.flow || !api_.ready || reduced() || !wrap.offsetParent) return;
@@ -339,6 +384,7 @@ function panelHTML(r) {
   const raw = {status: S.status, raw_label: S.raw_label, prediction_set: S.prediction_set, probabilities: pf, timing_ms: S.timing_ms};
   const topF = topLbl(pp), topA = topLbl(pf);
   return `
+  <div class="phero">
   <div class="card ent rise" id="c-ent"><h4>${kindTag(r.synthetic, r.chain)}<span class="r">${r.meta && r.meta.title ? esc(r.meta.title) : 'Wallet'}</span></h4>
     <div class="addr">${esc(r.address)}</div><div class="lbl">${lab}</div>${provLine(r.provenance)}
     <div class="io"><div><span>Received · ${fmtN(st.n_in, 0)} tx</span><b>${fmtN(st.tin)} ${r.graph.unit}</b></div><div><span>Sent · ${fmtN(st.n_out, 0)} tx</span><b>${fmtN(st.tout)} ${r.graph.unit}</b></div></div></div>
@@ -362,6 +408,8 @@ function panelHTML(r) {
       <p class="small">Sapling's own status is the honest baseline: when it is <b>unsure</b> (several labels it can't rule out) Mubit's guidance is to route the case to a human, which is what <b class="c-REVIEW">REVIEW</b> means here. ChainSentinel adds two calibrated cut-offs on top so confident cases don't wait in the queue:</p>
       <div class="rulebox"><div class="${r.verdict === 'FLAG' ? 'hit c-FLAG' : ''}">FLAG if P(violation) ≥ ${c.flag_violation}</div><div class="${r.verdict === 'CLEAR' ? 'hit c-CLEAR' : ''}">CLEAR if P(supported) ≥ ${c.clear_supported} and P(violation) &lt; ${c.clear_max_violation}</div><div class="${r.verdict === 'REVIEW' ? 'hit c-REVIEW' : ''}">otherwise REVIEW (send to a human)</div></div></details>
     <div class="sapfoot"><button class="btn sm" id="poledit">${icon('book')}Edit policy and re-run Sapling</button><span>Powered by <a href="https://huggingface.co/MubitLabs/banyan-sapling" target="_blank" rel="noopener">Banyan Sapling · Mubit</a> <span class="muted">· research preview</span></span></div></div>
+  </div>
+  <div class="prest">
   <div class="card cfbig rise" id="c-cf"><h4>Who makes the call?<span class="r">same policy, same claim</span></h4>
     <p class="small cfl">Our rules never decide. They only gather evidence. Here is what Sapling says with and without it:</p>
     <div class="cf"><div><div class="hd"><span>Facts alone</span>${vpill(r.verdict_facts)}</div><div class="cfw">${esc(LBL[topF])} <b class="num">${pct(pp[topF])}</b></div>${barsHTML(pp)}</div>
@@ -378,7 +426,22 @@ function panelHTML(r) {
     <details data-k="evf"><summary>${icon('chev')}Evidence: facts only<span class="r">${r.sapling_facts.request.evidence.length} chars</span></summary><pre>${esc(r.sapling_facts.request.evidence)}</pre></details>
     <details data-k="pol"><summary>${icon('chev')}Policy<span class="r">${req.policy.length} chars</span></summary><pre>${esc(req.policy)}</pre></details>
     <details data-k="raw"><summary>${icon('chev')}Raw Sapling response<span class="r">JSON</span></summary><pre>${esc(JSON.stringify(raw, null, 1))}</pre></details></div>
-  <div class="card nodeinfo rise" id="nodeinfo"><h4>Selected address</h4><div class="muted small">Click a dot on the graph to see who this wallet traded with, or a dashed “wallets” box to expand it.</div></div>`;
+  <div class="card nodeinfo rise" id="nodeinfo"><h4>Selected address</h4><div class="muted small">Click a dot on the graph to see who this wallet traded with, or a dashed “wallets” box to expand it.</div></div>
+  </div>`;
+}
+function placePanels() {
+  const hero = document.querySelector('.phero'), rest = document.querySelector('.prest');
+  if (!hero || !rest || !$('#phero-slot') || !$('#prest-slot')) return;
+  if (narrowMQ.matches) {
+    $('#phero-slot').appendChild(hero); $('#prest-slot').appendChild(rest);
+    if (!$('#panel').querySelector('.card, .skel, .phero, .prest')) $('#panel').replaceChildren();
+  } else { $('#panel').appendChild(hero); $('#panel').appendChild(rest); }
+}
+function resetPanel(html) {
+  if ($('#phero-slot')) $('#phero-slot').replaceChildren();
+  if ($('#prest-slot')) $('#prest-slot').replaceChildren();
+  $('#panel').innerHTML = html;
+  placePanels();
 }
 function sapState(st, txt) { const el = $('#sapstate'); if (!el) return; el.className = 'sapstate ' + st; el.querySelector('span').innerHTML = txt; }
 async function sapVerifying(S, live) {
@@ -388,7 +451,7 @@ async function sapVerifying(S, live) {
   sapState(S.src && S.src !== 'network' ? 'done old' : 'done', S.src === 'cache-fallback' ? `${icon('check')}Earlier answer · Sapling unreachable now` : S.src === 'replay' ? `${icon('check')}Replayed answer (${fmtN(m, 0)} ms when recorded)` : `${icon('check')}Verified live in ${fmtN(m, 0)} ms`);
 }
 function wirePanel(r) {
-  $$('#panel [data-open]').forEach(b => b.onclick = () => { const d = $(`#c-req details[data-k="${b.dataset.open}"]`); if (d) { d.open = true; d.scrollIntoView({behavior: reduced() ? 'auto' : 'smooth', block: 'center'}); } });
+  $$('#c-verdict [data-open]').forEach(b => b.onclick = () => { const d = $(`#c-req details[data-k="${b.dataset.open}"]`); if (d) { d.open = true; d.scrollIntoView({behavior: reduced() ? 'auto' : 'smooth', block: 'center'}); } });
   const pe = $('#poledit'); if (pe) pe.onclick = () => openPolicy(r);
 }
 // ---------- policy editor: re-run Sapling live on an edited policy ----------
@@ -419,12 +482,19 @@ $('#polclose').onclick = () => $('#poldlg').close();
 (() => {
   const t = $('#gtip'); let cur = null;
   const show = el => { cur = el; t.innerHTML = `<b>${esc(el.textContent === '?' ? 'What is this?' : el.textContent)}</b><span>${esc(GLOSS[el.dataset.g] || '')}</span>`; t.classList.add('show');
-    const b = el.getBoundingClientRect(), w = 300; t.style.left = Math.max(8, Math.min(innerWidth - w - 8, b.left + b.width / 2 - w / 2)) + 'px';
-    const below = b.bottom + 8 + t.offsetHeight < innerHeight; t.style.top = (below ? b.bottom + 8 : b.top - 8 - t.offsetHeight) + 'px'; };
+    const b = el.getBoundingClientRect(), w = t.offsetWidth || Math.min(300, innerWidth - 16); t.style.left = Math.max(8, Math.min(innerWidth - w - 8, b.left + b.width / 2 - w / 2)) + 'px';
+    const below = b.bottom + 8 + t.offsetHeight < innerHeight; t.style.top = (below ? b.bottom + 8 : Math.max(8, b.top - 8 - t.offsetHeight)) + 'px'; };
   const hide = () => { cur = null; t.classList.remove('show'); };
   document.addEventListener('mouseover', e => { const g = e.target.closest('.gl'); if (g && g !== cur) show(g); else if (!g && cur) hide(); });
   document.addEventListener('focusin', e => { const g = e.target.closest('.gl'); if (g) show(g); });
   document.addEventListener('focusout', hide);
+  document.addEventListener('click', e => {
+    if (matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    const g = e.target.closest('.gl');
+    if (!g) { if (cur) hide(); return; }
+    e.preventDefault(); e.stopPropagation();
+    if (cur === g && t.classList.contains('show')) hide(); else show(g);
+  }, true);
 })();
 const rise = sel => { const el = typeof sel === 'string' ? $(sel) : sel; if (el) requestAnimationFrame(() => el.classList.add('in')); };
 
@@ -436,7 +506,7 @@ async function investigate(addr, synthetic, o = {}) {
   note(synthetic ? 'Generating the synthetic transactions…' : `Fetching transactions for <span class="mono">${esc(short(addr))}</span> from ${addr && !addr.startsWith('0x') ? 'mempool.space' : 'Blockscout'} (cached when available)…`, 'db');
   $('#gwrap').classList.add('loading'); $('#gempty').hidden = false; $('#gempty h3').textContent = 'Running the pipeline'; $('#gempty p').textContent = 'Fetching transactions, building the flow graph, running the rules and asking Sapling.';
   ['#ghdr', '#gtools', '#legend'].forEach(s => $(s).hidden = true);
-  $('#panel').innerHTML = ['92px', '260px', '120px', '180px'].map(h => `<div class="skel" style="height:${h}"></div>`).join('');
+  resetPanel(['92px', '260px', '120px', '180px'].map(h => `<div class="skel" style="height:${h}"></div>`).join(''));
   $('#timeline').innerHTML = ''; $('#tlcount').textContent = '';
   if (!synthetic) $('#addr').value = addr;
   let r;
@@ -444,7 +514,7 @@ async function investigate(addr, synthetic, o = {}) {
   catch (e) {
     if (run !== RUN) return;
     resetSteps(); $('#gwrap').classList.remove('loading'); $('#gempty h3').textContent = 'Could not investigate this input'; $('#gempty p').textContent = e.message;
-    $('#panel').innerHTML = ''; showErr($('#ierr'), e.message); note(/sapling/i.test(e.message) ? 'The chain data was fetched, but Sapling could not be reached, so there is no verdict: ChainSentinel never makes the call without Sapling. Try again in a minute (a sleeping endpoint can take a minute to wake).' : 'Nothing was sent to Sapling. Fix the input and try again.', 'info'); return;
+    resetPanel(''); showErr($('#ierr'), e.message); note(/sapling/i.test(e.message) ? 'The chain data was fetched, but Sapling could not be reached, so there is no verdict: ChainSentinel never makes the call without Sapling. Try again in a minute (a sleeping endpoint can take a minute to wake).' : 'Nothing was sent to Sapling. Fix the input and try again.', 'info'); return;
   }
   if (run !== RUN) return;
   history.replaceState(null, '', synthetic ? `?s=${synthetic}` : `?a=${encodeURIComponent(addr)}`);
@@ -452,8 +522,8 @@ async function investigate(addr, synthetic, o = {}) {
 }
 async function pipeline(r, run, o) {
   CUR = r; const live = () => run === RUN;
-  $('#panel').innerHTML = panelHTML(r); wirePanel(r);
-  $$('#panel .rule[data-r]').forEach(el => el.onclick = () => { $$('.rule').forEach(x => x.classList.remove('on')); el.classList.add('on'); const x = r.rules[+el.dataset.r]; G.highlight(x.edges_in_graph, x.nodes); note(`<b>${x.id} ${esc(x.name)}</b>: ${esc(x.detail)}`, 'rules'); });
+  resetPanel(panelHTML(r)); wirePanel(r);
+  $$('#c-rules .rule[data-r]').forEach(el => el.onclick = () => { $$('.rule').forEach(x => x.classList.remove('on')); el.classList.add('on'); const x = r.rules[+el.dataset.r]; G.highlight(x.edges_in_graph, x.nodes); note(`<b>${x.id} ${esc(x.name)}</b>: ${esc(x.detail)}`, 'rules'); if (narrowMQ.matches) { const s = document.querySelector('#v-investigate .gstage'); if (s) s.scrollIntoView({behavior: reduced() ? 'auto' : 'smooth', block: 'nearest'}); } });
   // 1 fetch
   stepState(0, 'done', `${fmtN(r.n_tx, 0)} transfers · ${srcName(r).replace('the synthetic generator', 'generator')}`); note(stepNote(0, r), 'db');
   renderTimeline(r); rise('#c-ent');
@@ -487,7 +557,7 @@ async function pipeline(r, run, o) {
   for (const id of ['#c-cf', '#c-why', '#nodeinfo']) { rise(id); await sleep(90); }
   $$('#c-cf .bars').forEach((b, i) => animateBars(b, i ? r.sapling_full.probabilities : r.sapling_facts.probabilities));
   if (!live()) return;
-  if (o.rule !== undefined) { setTimeout(() => { const el = typeof o.rule === 'number' ? $(`#panel .rule[data-r="${o.rule}"]`) : $$('#panel .rule[data-r]').find(e => e.querySelector('.code').textContent === o.rule); if (el) el.click(); }, reduced() ? 0 : 500); }
+  if (o.rule !== undefined) { setTimeout(() => { const el = typeof o.rule === 'number' ? $(`#c-rules .rule[data-r="${o.rule}"]`) : $$('#c-rules .rule[data-r]').find(e => e.querySelector('.code').textContent === o.rule); if (el) el.click(); }, reduced() ? 0 : 500); }
   else if (r.rules.length) setTimeout(() => live() && G && !$('.rule.on') && G.highlight([]), 1400);
 }
 function graphChrome(r) {
@@ -823,7 +893,7 @@ function onboarding() {
 }
 // ---------- boot ----------
 (async () => {
-  hydrate(); onboarding();
+  hydrate(); onboarding(); syncNavInert();
   try { SHOW = await api('/api/showcase'); } catch (e) { $('#modetxt').textContent = 'Backend unreachable'; return; }
   $('#mode').classList.toggle('off', !!SHOW.offline);
   $('#modetxt').textContent = SHOW.offline ? 'Offline · cached data' : 'Live · Blockscout, mempool, Sapling';
