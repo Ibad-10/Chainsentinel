@@ -7,8 +7,13 @@
 <link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/cytoscape.min.js"></script></head>
 <body>
 <div class="app">
-  <aside class="side">
-    <div class="brand"><div class="mark" data-i="mark"></div><div><b>ChainSentinel</b><small>Rules gather evidence. Sapling decides.</small></div></div>
+  <header class="mtop">
+    <button type="button" class="navbtn" id="navopen" aria-label="Open menu" aria-expanded="false" aria-controls="sidenav"><span data-i="menu"></span></button>
+    <div class="mtop-title"><b>ChainSentinel</b><span id="mtab">Overview</span></div>
+  </header>
+  <div class="navscrim" id="navscrim"></div>
+  <aside class="side" id="sidenav">
+    <div class="brand"><div class="mark" data-i="mark"></div><div><b>ChainSentinel</b><small>Rules gather evidence. Sapling decides.</small></div><button type="button" class="navclose" id="navclose" aria-label="Close menu"><span data-i="x"></span></button></div>
     <nav class="nav" id="nav">
       <button data-tab="overview"><span data-i="grid"></span>Overview</button>
       <button data-tab="scan"><span data-i="pulse"></span>Live scanner<span class="livedot" id="scdot" hidden></span></button>
@@ -54,8 +59,13 @@
       <div class="stepnote" id="stepnote"><span data-i="info"></span><span>Pick an example or paste an address. Each step lights up as it runs; click a step afterwards to replay that part on the map.</span></div>
       <div class="ws">
         <div class="gcol">
+          <div class="phero-slot" id="phero-slot"></div>
           <div class="gwrap" id="gwrap">
-            <div class="cy" id="cy"></div><canvas class="fx" id="fx"></canvas>
+            <div class="gstage">
+              <div class="cy" id="cy"></div><canvas class="fx" id="fx"></canvas>
+              <div class="gempty" id="gempty"><div><h3>Paste a wallet address to start</h3><p>Or pick one of the examples above. The money-flow map appears here: the wallet in the centre, everyone it traded with around it, thicker lines for bigger amounts.</p><ol class="onb3 sm"><li><b>Paste a wallet</b></li><li><b>See the money flow</b></li><li><b>Get a verdict with reasons</b></li></ol></div></div>
+              <div class="tip" id="tip"></div>
+            </div>
             <div class="ghdr" id="ghdr" hidden></div>
             <div class="gtools" id="gtools" hidden>
               <button class="btn" id="t-fit" title="Zoom to fit"><span data-i="fit"></span>Fit</button>
@@ -64,10 +74,9 @@
               <button class="btn on" id="t-flow" title="Animate money flow"><span data-i="flow"></span>Flow</button>
             </div>
             <div class="legend" id="legend" hidden></div>
-            <div class="gempty" id="gempty"><div><h3>Paste a wallet address to start</h3><p>Or pick one of the examples above. The money-flow map appears here: the wallet in the centre, everyone it traded with around it, thicker lines for bigger amounts.</p><ol class="onb3 sm"><li><b>Paste a wallet</b></li><li><b>See the money flow</b></li><li><b>Get a verdict with reasons</b></li></ol></div></div>
-            <div class="tip" id="tip"></div>
           </div>
           <div class="tl" id="tl"><header><span data-i="clock"></span><b>Timeline</b><span id="tlcount" class="muted"></span></header><div class="tlrows" id="timeline"></div></div>
+          <div class="prest-slot" id="prest-slot"></div>
         </div>
         <aside class="ipanel" id="panel"></aside>
       </div>
